@@ -37,9 +37,20 @@ export default function Confirmation() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen bg-background pb-8 relative">
+      <header className="absolute top-0 left-0 p-4 z-10">
+        <Button 
+          variant="ghost"
+          onClick={() => setLocation("/")}
+          title="Go to Home"
+          className="p-2 h-auto hover:bg-secondary/50 rounded-full"
+        >
+          <Home className="w-8 h-8 text-foreground" />
+        </Button>
+      </header>
+
       {/* Success Animation */}
-      <div className="flex flex-col items-center justify-center pt-12 pb-8 px-4">
+      <div className="flex flex-col items-center justify-center pt-16 pb-8 px-4">
         <div className="relative mb-6">
           {/* Outer glow ring */}
           <div className="absolute inset-0 w-28 h-28 rounded-full bg-primary/20 animate-success-pulse" />

@@ -159,6 +159,18 @@ export class MemStorage implements IStorage {
     };
     this.users.set(playerUser.id, playerUser);
 
+    let tharakUploadedImage = turfImages[0];
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const files = fs.readdirSync(path.join(process.cwd(), "uploads"));
+      if (files.length > 0) {
+        tharakUploadedImage = "/uploads/" + files[files.length - 1]; // Use last uploaded file
+      }
+    } catch (e) {
+      // Ignore
+    }
+
     const ownerUser: User = {
       id: "seed-owner-tharak",
       username: "tharak",
@@ -174,7 +186,7 @@ export class MemStorage implements IStorage {
       turfLocation: "Nandyal",
       turfAddress: "balaji complex, Nandyal, 518501",
       turfPincode: "518501",
-      turfImageUrls: [turfImages[0]],
+      turfImageUrls: [tharakUploadedImage],
       turfLength: 120,
       turfWidth: 80,
       profileImageUrl: null,
@@ -188,7 +200,7 @@ export class MemStorage implements IStorage {
       name: "Tharak's Turf",
       location: "Nandyal",
       address: "balaji complex, Nandyal, 518501",
-      imageUrl: turfImages[0],
+      imageUrl: tharakUploadedImage,
       rating: 5,
       amenities: ["Parking"],
       sportTypes: ["Cricket"],

@@ -27,7 +27,8 @@ export default function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   // Filter state
-  const [filterLocation, setFilterLocation] = useState<string | null>(null);
+  const [filterCity, setFilterCity] = useState<string | null>(null);
+  const [filterArea, setFilterArea] = useState<string | null>(null);
   const [filterMaxPrice, setFilterMaxPrice] = useState<number>(5000);
   const [filterMinRating, setFilterMinRating] = useState<number>(0);
   const [filterAmenities, setFilterAmenities] = useState<string[]>([]);
@@ -36,10 +37,35 @@ export default function Home() {
     queryKey: ["/api/turfs"],
   });
 
-  // Extract unique locations for filter
-  const locations = useMemo(() => {
-    if (!turfs) return [];
-    return Array.from(new Set(turfs.map((t) => t.location))).sort();
+  // Extract unique cities and areas for filter
+  const { cities, areasByCity } = useMemo(() => {
+    if (!turfs) return { cities: [], areasByCity: {} as Record<string, string[]> };
+    
+    const citySet = new Set<string>();
+    const areaMap: Record<string, Set<string>> = {};
+    
+    turfs.forEach(t => {
+      let city = t.location;
+      let area = "";
+      if (t.location.includes(",")) {
+        const parts = t.location.split(",");
+        city = parts[parts.length - 1].trim();
+        area = parts.slice(0, -1).join(",").trim();
+      }
+      citySet.add(city);
+      if (!areaMap[city]) areaMap[city] = new Set();
+      if (area) areaMap[city].add(area);
+    });
+    
+    const sortedAreasByCity: Record<string, string[]> = {};
+    Object.keys(areaMap).forEach(c => {
+      sortedAreasByCity[c] = Array.from(areaMap[c]).sort();
+    });
+    
+    return {
+      cities: Array.from(citySet).sort(),
+      areasByCity: sortedAreasByCity
+    };
   }, [turfs]);
 
   const amenities = useMemo(() => {
@@ -62,7 +88,16 @@ export default function Home() {
 
   // Apply advanced filters (location, price, rating)
   const advancedFiltered = filteredTurfs.filter((t) => {
-    if (filterLocation && t.location !== filterLocation) return false;
+    let tCity = t.location;
+    let tArea = "";
+    if (t.location.includes(",")) {
+      const parts = t.location.split(",");
+      tCity = parts[parts.length - 1].trim();
+      tArea = parts.slice(0, -1).join(",").trim();
+    }
+    
+    if (filterCity && tCity !== filterCity) return false;
+    if (filterArea && tArea !== filterArea) return false;
     if (t.pricePerHour > filterMaxPrice) return false;
     if (t.rating < filterMinRating) return false;
     if (filterAmenities.length > 0 && !filterAmenities.every((a) => t.amenities.includes(a))) return false;
@@ -71,7 +106,16 @@ export default function Home() {
 
   // Apply advanced filters to featured turfs too
   const advancedFeatured = featuredTurfs.filter((t) => {
-    if (filterLocation && t.location !== filterLocation) return false;
+    let tCity = t.location;
+    let tArea = "";
+    if (t.location.includes(",")) {
+      const parts = t.location.split(",");
+      tCity = parts[parts.length - 1].trim();
+      tArea = parts.slice(0, -1).join(",").trim();
+    }
+    
+    if (filterCity && tCity !== filterCity) return false;
+    if (filterArea && tArea !== filterArea) return false;
     if (t.pricePerHour > filterMaxPrice) return false;
     if (t.rating < filterMinRating) return false;
     if (filterAmenities.length > 0 && !filterAmenities.every((a) => t.amenities.includes(a))) return false;
@@ -85,10 +129,11 @@ export default function Home() {
       )
     : advancedFiltered;
 
-  const hasActiveFilters = filterLocation !== null || filterMaxPrice < 5000 || filterMinRating > 0 || filterAmenities.length > 0;
+  const hasActiveFilters = filterCity !== null || filterArea !== null || filterMaxPrice < 5000 || filterMinRating > 0 || filterAmenities.length > 0;
 
   const clearFilters = () => {
-    setFilterLocation(null);
+    setFilterCity(null);
+    setFilterArea(null);
     setFilterMaxPrice(5000);
     setFilterMinRating(0);
     setFilterAmenities([]);
@@ -180,11 +225,20 @@ export default function Home() {
         {hasActiveFilters && (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground">Filters:</span>
-            {filterLocation && (
+            {filterCity && (
               <Badge variant="secondary" className="text-xs gap-1 pr-1">
                 <MapPin className="w-3 h-3" />
-                {filterLocation}
-                <button onClick={() => setFilterLocation(null)} className="ml-1 hover:text-foreground">
+                {filterCity}
+                <button onClick={() => { setFilterCity(null); setFilterArea(null); }} className="ml-1 hover:text-foreground">
+                  <X className="w-3 h-3" />
+                </button>
+              </Badge>
+            )}
+            {filterArea && (
+              <Badge variant="secondary" className="text-xs gap-1 pr-1">
+                <MapPin className="w-3 h-3" />
+                {filterArea}
+                <button onClick={() => setFilterArea(null)} className="ml-1 hover:text-foreground">
                   <X className="w-3 h-3" />
                 </button>
               </Badge>
@@ -213,56 +267,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* Sport Filters */}
-        <section data-testid="section-filters">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
-            {sportFilters.map((filter) => (
-              <Badge
-                key={filter}
-                variant={activeFilter === filter ? "default" : "secondary"}
-                className={`px-4 py-2 text-sm font-medium whitespace-nowrap cursor-pointer transition-all ${
-                  activeFilter === filter ? "" : "hover:bg-secondary/80"
-                }`}
-                onClick={() => setActiveFilter(filter)}
-                data-testid={`filter-${filter.toLowerCase()}`}
-              >
-                {filter}
-              </Badge>
-            ))}
-          </div>
-        </section>
 
-        {/* Featured Turfs */}
-        {advancedFeatured.length > 0 && (
-          <section className="space-y-4" data-testid="section-featured">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">Featured Turfs</h2>
-              <Link href="/search">
-                <Button variant="ghost" className="text-primary p-0 h-auto">
-                  See all
-                </Button>
-              </Link>
-            </div>
-            
-            <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-2">
-              {isLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="min-w-[280px] h-[200px] rounded-xl" />
-                ))
-              ) : (
-                advancedFeatured.map((turf, index) => (
-                  <div 
-                    key={turf.id} 
-                    className="animate-slide-up"
-                    style={{ animationDelay: `${index * 100}ms` }}
-                  >
-                    <TurfCard turf={turf} variant="featured" />
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        )}
+
+
 
         {/* Available Now */}
         <section className="space-y-4" data-testid="section-available">
@@ -318,28 +325,57 @@ export default function Home() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-primary" />
-                <span className="font-medium text-foreground text-sm">Location</span>
+                <span className="font-medium text-foreground text-sm">City</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge
-                  variant={filterLocation === null ? "default" : "secondary"}
+                  variant={filterCity === null ? "default" : "secondary"}
                   className="px-3 py-1.5 text-sm cursor-pointer transition-all"
-                  onClick={() => setFilterLocation(null)}
+                  onClick={() => { setFilterCity(null); setFilterArea(null); }}
                 >
                   All
                 </Badge>
-                {locations.map((loc) => (
+                {cities.map((city) => (
                   <Badge
-                    key={loc}
-                    variant={filterLocation === loc ? "default" : "secondary"}
+                    key={city}
+                    variant={filterCity === city ? "default" : "secondary"}
                     className="px-3 py-1.5 text-sm cursor-pointer transition-all"
-                    onClick={() => setFilterLocation(filterLocation === loc ? null : loc)}
+                    onClick={() => { setFilterCity(filterCity === city ? null : city); setFilterArea(null); }}
                   >
-                    {loc}
+                    {city}
                   </Badge>
                 ))}
               </div>
             </div>
+
+            {/* Area filter */}
+            {filterCity && areasByCity[filterCity]?.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-primary opacity-70" />
+                  <span className="font-medium text-foreground text-sm">Area / Locality</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge
+                    variant={filterArea === null ? "default" : "secondary"}
+                    className="px-3 py-1.5 text-sm cursor-pointer transition-all"
+                    onClick={() => setFilterArea(null)}
+                  >
+                    All Areas
+                  </Badge>
+                  {areasByCity[filterCity].map((area) => (
+                    <Badge
+                      key={area}
+                      variant={filterArea === area ? "default" : "secondary"}
+                      className="px-3 py-1.5 text-sm cursor-pointer transition-all"
+                      onClick={() => setFilterArea(filterArea === area ? null : area)}
+                    >
+                      {area}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Price range */}
             <div className="space-y-3">
