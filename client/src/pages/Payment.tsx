@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Booking, InsertBooking } from "@shared/schema";
 
@@ -53,6 +53,7 @@ export default function Payment() {
       return booking as Booking;
     },
     onSuccess: (booking) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/my-bookings"] });
       sessionStorage.removeItem("pendingBooking");
       sessionStorage.setItem("confirmedBooking", JSON.stringify(booking));
       setLocation("/confirmation");

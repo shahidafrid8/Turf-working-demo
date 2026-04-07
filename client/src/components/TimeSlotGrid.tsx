@@ -5,12 +5,17 @@ interface TimeSlotGridProps {
   slots: TimeSlot[];
   selectedSlotId: string | null;
   onSelectSlot: (slot: TimeSlot) => void;
+  duration: number;
 }
 
-export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot }: TimeSlotGridProps) {
+export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot, duration }: TimeSlotGridProps) {
   const morningSlots = slots.filter((s) => s.period === "morning");
   const afternoonSlots = slots.filter((s) => s.period === "afternoon");
   const eveningSlots = slots.filter((s) => s.period === "evening");
+
+  const selectedSlot = slots.find(s => s.id === selectedSlotId);
+  const selectedStartHour = selectedSlot ? parseInt(selectedSlot.startTime.split(':')[0]) : null;
+  const durationHours = duration / 60;
 
   const renderSlots = (periodSlots: TimeSlot[], period: string) => {
     if (periodSlots.length === 0) return null;
@@ -49,7 +54,12 @@ export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot }: TimeSlotGr
         
         <div className="grid grid-cols-3 gap-2">
           {periodSlots.map((slot) => {
-            const isSelected = selectedSlotId === slot.id;
+            const slotHour = parseInt(slot.startTime.split(':')[0]);
+            let isSelected = false;
+            if (selectedStartHour !== null) {
+              isSelected = slotHour >= selectedStartHour && slotHour < selectedStartHour + durationHours;
+            }
+            
             const isUnavailable = slot.isBooked || slot.isBlocked;
             
             return (

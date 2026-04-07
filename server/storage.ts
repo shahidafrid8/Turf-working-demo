@@ -159,6 +159,28 @@ export class MemStorage implements IStorage {
     };
     this.users.set(playerUser.id, playerUser);
 
+    const playerUser2: User = {
+      id: "seed-player-shamanth",
+      username: "shamanth",
+      fullName: "Shamanth",
+      email: "shamanth@gmail.com",
+      phoneNumber: "0987654322",
+      password: bcrypt.hashSync("shamath123", 10),
+      dateOfBirth: "2000-01-01",
+      role: "player",
+      ownerStatus: null,
+      turfStatus: null,
+      turfName: null,
+      turfLocation: null,
+      turfAddress: null,
+      turfPincode: null,
+      turfImageUrls: null,
+      turfLength: null,
+      turfWidth: null,
+      profileImageUrl: null,
+    };
+    this.users.set(playerUser2.id, playerUser2);
+
     let tharakUploadedImage = turfImages[0];
     try {
       const fs = require("fs");

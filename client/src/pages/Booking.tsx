@@ -11,6 +11,7 @@ import { DateSelector } from "@/components/DateSelector";
 import { TimeSlotGrid } from "@/components/TimeSlotGrid";
 import { startOfToday, format } from "date-fns";
 import type { Turf, TimeSlot } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 const amenityIcons: Record<string, typeof Wifi> = {
   "Parking": Car,
@@ -24,6 +25,7 @@ const amenityIcons: Record<string, typeof Wifi> = {
 export default function Booking() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState(startOfToday());
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [duration, setDuration] = useState("60");
@@ -63,6 +65,62 @@ export default function Booking() {
     
     sessionStorage.setItem("pendingBooking", JSON.stringify(bookingData));
     setLocation("/payment");
+  };
+
+  const handleDurationChange = (newDuration: string) => {
+    setDuration(newDuration);
+    if (selectedSlot && slots) {
+      const durationHours = parseInt(newDuration) / 60;
+      const startHour = parseInt(selectedSlot.startTime.split(':')[0]);
+      let conflict = false;
+      
+      for (let i = 0; i < durationHours; i++) {
+        const requiredHour = startHour + i;
+        const requiredHourStr = `${requiredHour.toString().padStart(2, '0')}:00`;
+        const slotAtHour = slots.find(s => s.startTime === requiredHourStr);
+        if (!slotAtHour || slotAtHour.isBooked || slotAtHour.isBlocked) {
+          conflict = true;
+          break;
+        }
+      }
+      
+      if (conflict) {
+        toast({
+          title: "Booking Conflict",
+          description: "The new duration overlaps with already booked or blocked hours. Please select another time or duration.",
+          variant: "destructive",
+        });
+        setSelectedSlot(null);
+      }
+    }
+  };
+
+  const handleSelectSlot = (slot: TimeSlot) => {
+    if (slots) {
+      const durationHours = parseInt(duration) / 60;
+      const startHour = parseInt(slot.startTime.split(':')[0]);
+      let conflict = false;
+
+      for (let i = 0; i < durationHours; i++) {
+        const requiredHour = startHour + i;
+        const requiredHourStr = `${requiredHour.toString().padStart(2, '0')}:00`;
+        const slotAtHour = slots.find(s => s.startTime === requiredHourStr);
+        if (!slotAtHour || slotAtHour.isBooked || slotAtHour.isBlocked) {
+          conflict = true;
+          break;
+        }
+      }
+
+      if (conflict) {
+        toast({
+          title: "Booking Conflict",
+          description: "The selected duration overlaps with already booked or blocked hours. Please select another time or a shorter duration.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    setSelectedSlot(slot);
   };
 
   if (turfLoading) {
@@ -188,14 +246,16 @@ export default function Booking() {
               <h3 className="font-semibold text-foreground">Duration</h3>
               <p className="text-sm text-muted-foreground">Select playing time</p>
             </div>
-            <Select value={duration} onValueChange={setDuration}>
+            <Select value={duration} onValueChange={handleDurationChange}>
               <SelectTrigger className="w-32" data-testid="select-duration">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="60">1 hour</SelectItem>
-                <SelectItem value="90">1.5 hours</SelectItem>
                 <SelectItem value="120">2 hours</SelectItem>
+                <SelectItem value="180">3 hours</SelectItem>
+                <SelectItem value="240">4 hours</SelectItem>
+                <SelectItem value="300">5 hours</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -221,7 +281,8 @@ export default function Booking() {
             <TimeSlotGrid
               slots={slots}
               selectedSlotId={selectedSlot?.id || null}
-              onSelectSlot={setSelectedSlot}
+              onSelectSlot={handleSelectSlot}
+              duration={parseInt(duration)}
             />
           ) : (
             <div className="text-center py-8">

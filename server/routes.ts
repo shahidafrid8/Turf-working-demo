@@ -494,21 +494,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // ── Prevent double-booking ─────────────────────────────────────
-      // Find the matching time slot for this turf/date/startTime
       const slots = await storage.getTimeSlots(validatedData.turfId, validatedData.date);
-      const matchingSlot = slots.find(
-        (s) => s.startTime === validatedData.startTime && s.turfId === validatedData.turfId
-      );
+      
+      const durationHours = Math.ceil((validatedData.duration || 60) / 60);
+      const startHour = parseInt(validatedData.startTime.split(':')[0]);
+      
+      const requiredSlots: any[] = [];
+      let hasConflict = false;
+      let conflictReason = "";
 
-      if (matchingSlot) {
+      for (let i = 0; i < durationHours; i++) {
+        const requiredHour = startHour + i;
+        const requiredHourStr = `${requiredHour.toString().padStart(2, '0')}:00`;
+        const matchingSlot = slots.find(
+          (s) => s.startTime === requiredHourStr && s.turfId === validatedData.turfId
+        );
+
+        if (!matchingSlot) {
+           hasConflict = true;
+           conflictReason = "Time slot is outside of operational hours or missing";
+           break;
+        }
         if (matchingSlot.isBooked) {
-          return res.status(409).json({ error: "This time slot is already booked" }) as any;
+          hasConflict = true;
+          conflictReason = "One or more of the selected time slots are already booked";
+          break;
         }
         if (matchingSlot.isBlocked) {
-          return res.status(409).json({ error: "This time slot is blocked by the owner" }) as any;
+          hasConflict = true;
+          conflictReason = "One or more of the selected time slots are blocked by the owner";
+          break;
         }
-        // Mark slot as booked
-        await storage.bookTimeSlot(matchingSlot.id);
+        requiredSlots.push(matchingSlot);
+      }
+
+      if (hasConflict) {
+        return res.status(409).json({ error: conflictReason }) as any;
+      }
+
+      // Mark all required slots as booked
+      for (const reqSlot of requiredSlots) {
+        await storage.bookTimeSlot(reqSlot.id);
       }
 
       const booking = await storage.createBooking(validatedData);
