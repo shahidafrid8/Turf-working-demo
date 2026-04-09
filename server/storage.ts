@@ -25,6 +25,7 @@ export interface IStorage {
   getPendingTurfs(): Promise<User[]>;
   getAllOwners(): Promise<User[]>;
   getAllPlayers(): Promise<User[]>;
+  deleteUser(id: string): Promise<void>;
 
   // Locations
   getLocations(): Promise<string[]>;
@@ -316,6 +317,10 @@ export class MemStorage implements IStorage {
     const updated = { ...user, ownerStatus: status };
     this.users.set(id, updated);
     return updated;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    this.users.delete(id);
   }
 
   async updateTurfStatus(id: string, status: "turf_approved" | "turf_rejected"): Promise<User | undefined> {

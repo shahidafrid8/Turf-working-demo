@@ -266,6 +266,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Delete profile ────────────────────────────────────────────────────────
+  app.delete("/api/auth/profile", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    try {
+      await storage.deleteUser(req.session.userId);
+      req.session.destroy(() => res.json({ success: true }));
+    } catch (err: any) {
+      console.error("Profile deletion error:", err);
+      res.status(500).json({ error: "Profile deletion failed" });
+    }
+  });
+
   // ── Change password ───────────────────────────────────────────────────────
   app.post("/api/auth/change-password", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;

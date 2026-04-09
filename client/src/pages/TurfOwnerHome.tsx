@@ -119,7 +119,7 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
                 ₹{slot.price}
               </p>
               <p className={cn("text-[10px] mt-1 font-medium", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary/70")}>
-                {isBooked ? "Booked" : isBlocked ? "Blocked" : "Open"}
+                {isBooked ? "Booked" : isBlocked ? "Owner Booked" : "Open"}
               </p>
             </button>
           );
@@ -158,14 +158,14 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-destructive/20 border border-destructive/40" />
-          <span className="text-muted-foreground">{blockedCount} Blocked</span>
+          <span className="text-muted-foreground">{blockedCount} Owner Booked</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-secondary" />
           <span className="text-muted-foreground">{bookedCount} Booked</span>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">Tap an open slot to block it. Tap a blocked slot to unblock it.</p>
+      <p className="text-xs text-muted-foreground">Tap an open slot to book it yourself. Tap an owner-booked slot to open it.</p>
       {isLoading ? (
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: 9 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-secondary animate-pulse" />)}

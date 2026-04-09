@@ -569,18 +569,31 @@ function NotificationsView({ onBack }: { onBack: () => void }) {
    ═════════════════════════════════════════════════════════════════════════ */
 
 function PrivacyView({ onBack }: { onBack: () => void }) {
-  const [prefs, setPrefs] = useState({ showProfile: true, shareBookings: false });
+  const { logout } = useAuth();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch("/api/auth/profile", { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete account");
+      toast({ title: "Account deleted", description: "Your account has been successfully removed." });
+      await logout();
+      navigate("/");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      setIsDeleting(false);
+      setDeleteOpen(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background pb-20">
       <SubHeader title="Privacy & Security" onBack={onBack} />
       <main className="px-4 py-6 space-y-6">
-        <div>
-          <SectionLabel>Privacy</SectionLabel>
-          <Card className="divide-y divide-border">
-            <Toggle label="Public Profile" desc="Allow other users to see your profile" checked={prefs.showProfile} onChange={(v) => setPrefs({ ...prefs, showProfile: v })} />
-            <Toggle label="Share Booking Activity" desc="Show your recent bookings to friends" checked={prefs.shareBookings} onChange={(v) => setPrefs({ ...prefs, shareBookings: v })} />
-          </Card>
-        </div>
         <div>
           <SectionLabel>Security</SectionLabel>
           <Card className="p-4">
@@ -599,14 +612,10 @@ function PrivacyView({ onBack }: { onBack: () => void }) {
         <div>
           <SectionLabel>Data</SectionLabel>
           <Card className="divide-y divide-border">
-            <button className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors">
-              <div className="flex-1 text-left">
-                <p className="font-medium text-foreground text-sm">Download My Data</p>
-                <p className="text-xs text-muted-foreground">Get a copy of your account data</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-muted-foreground" />
-            </button>
-            <button className="w-full flex items-center gap-4 p-4 hover:bg-destructive/5 transition-colors">
+            <button 
+              className="w-full flex items-center gap-4 p-4 hover:bg-destructive/5 transition-colors"
+              onClick={() => setDeleteOpen(true)}
+            >
               <div className="flex-1 text-left">
                 <p className="font-medium text-destructive text-sm">Delete Account</p>
                 <p className="text-xs text-muted-foreground">Permanently delete your account and data</p>
@@ -616,6 +625,27 @@ function PrivacyView({ onBack }: { onBack: () => void }) {
           </Card>
         </div>
       </main>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete your account? All your bookings, turfs, and data will be removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteAccount} 
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete Account"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

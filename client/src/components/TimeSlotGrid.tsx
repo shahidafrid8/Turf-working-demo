@@ -90,8 +90,8 @@ export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot, duration }: 
                 </div>
                 {isUnavailable && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs text-muted-foreground font-medium">
-                      {slot.isBlocked ? "Blocked" : "Booked"}
+                    <span className="text-xs text-muted-foreground font-medium px-2 text-center leading-tight">
+                      {slot.isBlocked ? "Booked by owner" : "Booked"}
                     </span>
                   </div>
                 )}
