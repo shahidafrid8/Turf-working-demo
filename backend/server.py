@@ -603,7 +603,7 @@ async def update_turf_profile(body: TurfProfileUpdate, user=Depends(get_current_
         update["sportTypes"] = body.sportTypes
     if update:
         await turfs_col.update_one({"_id": turf["_id"]}, {"$set": update})
-        # Also sync user's turfAddress if address changed
+        # Sync user fields if name/address changed
         user_update = {}
         if body.name:
             user_update["turfName"] = body.name
@@ -611,6 +611,14 @@ async def update_turf_profile(body: TurfProfileUpdate, user=Depends(get_current_
             user_update["turfAddress"] = body.address
         if user_update:
             await users_col.update_one({"_id": user["_id"]}, {"$set": user_update})
+        # If price or hours changed, delete future slots so they regenerate with new pricing
+        if body.pricePerHour is not None or body.openHour is not None or body.closeHour is not None:
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            await slots_col.delete_many({
+                "turfId": turf["_id"],
+                "date": {"$gte": today_str},
+                "isBooked": False,
+            })
     updated_turf = await turfs_col.find_one({"_id": turf["_id"]})
     return safe_turf(updated_turf)
 
