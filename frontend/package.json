@@ -1,0 +1,7 @@
+{
+  "name": "turf-frontend",
+  "private": true,
+  "scripts": {
+    "start": "cd /app && node_modules/.bin/vite --port 3000 --host 0.0.0.0"
+  }
+}

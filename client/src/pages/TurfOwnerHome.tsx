@@ -8,7 +8,8 @@ import { format, addDays, startOfToday } from "date-fns";
 import {
   Clock, CheckCircle, XCircle, MapPin, Building2, Image as ImageIcon,
   LogOut, ChevronDown, ChevronUp, CalendarDays, ImagePlus, Loader2, Trash2, ShieldCheck,
-  Phone, User, BookOpen, Receipt
+  Phone, User, BookOpen, Receipt, TrendingUp, Settings, Star, AlertCircle,
+  IndianRupee, BarChart2, Edit2, XCircle as CancelIcon, MessageSquare, Pencil
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Turf, TimeSlot } from "@shared/schema";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const DATE_COUNT = 14;
 const today = startOfToday();
@@ -34,12 +36,400 @@ const turfSchema = z.object({
 });
 type TurfFormValues = z.infer<typeof turfSchema>;
 
-interface UploadedImage {
-  url: string;
-  previewUrl: string;
-  name: string;
+interface UploadedImage { url: string; previewUrl: string; name: string; }
+
+// ── Analytics Panel ────────────────────────────────────────────────────────────
+function AnalyticsPanel({ turf }: { turf: Turf }) {
+  const { data: analytics, isLoading } = useQuery<any>({
+    queryKey: ["/api/owner/analytics", turf.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/owner/analytics?turf_id=${turf.id}`);
+      if (!res.ok) throw new Error("Failed to fetch analytics");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mt-4 space-y-4">
+        {[1, 2, 3].map(i => <div key={i} className="h-20 rounded-xl bg-secondary animate-pulse" />)}
+      </div>
+    );
+  }
+
+  if (!analytics) return <p className="text-muted-foreground text-sm text-center py-6">No analytics data yet.</p>;
+
+  const kpis = [
+    { label: "Total Revenue", value: `₹${(analytics.totalRevenue || 0).toLocaleString()}`, icon: IndianRupee, color: "text-green-500", bg: "bg-green-500/10" },
+    { label: "Total Bookings", value: analytics.totalBookings || 0, icon: BookOpen, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { label: "Cancelled", value: analytics.cancelledBookings || 0, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10" },
+    { label: "Occupancy Rate", value: `${analytics.occupancyRate || 0}%`, icon: BarChart2, color: "text-purple-500", bg: "bg-purple-500/10" },
+  ];
+
+  return (
+    <div className="mt-4 space-y-5">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-3">
+        {kpis.map(k => (
+          <div key={k.label} className="bg-card border border-border rounded-xl p-3">
+            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center mb-2", k.bg)}>
+              <k.icon className={cn("w-4 h-4", k.color)} />
+            </div>
+            <p className="text-foreground font-bold text-lg leading-tight">{k.value}</p>
+            <p className="text-muted-foreground text-xs mt-0.5">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Monthly Revenue Chart */}
+      {analytics.monthlyRevenue && analytics.monthlyRevenue.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-foreground font-semibold text-sm mb-3">Monthly Revenue</p>
+          <ResponsiveContainer width="100%" height={140}>
+            <BarChart data={analytics.monthlyRevenue} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#888" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "#888" }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+              <Tooltip formatter={(v: any) => [`₹${Number(v).toLocaleString()}`, "Revenue"]} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                {analytics.monthlyRevenue.map((_: any, i: number) => (
+                  <Cell key={i} fill={`hsl(${142 + i * 8}, 60%, ${50 + i * 3}%)`} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Peak Hours */}
+      {analytics.peakHours && analytics.peakHours.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-foreground font-semibold text-sm mb-3">Peak Booking Hours</p>
+          <div className="space-y-2">
+            {analytics.peakHours.slice(0, 5).map((h: any) => {
+              const maxCount = Math.max(...analytics.peakHours.map((x: any) => x.count));
+              const pct = maxCount > 0 ? (h.count / maxCount) * 100 : 0;
+              return (
+                <div key={h.hour} className="flex items-center gap-3">
+                  <span className="text-muted-foreground text-xs w-12 shrink-0">{h.hour}</span>
+                  <div className="flex-1 bg-secondary rounded-full h-2 overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-foreground text-xs font-medium w-6 text-right">{h.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Bookings */}
+      {analytics.recentBookings && analytics.recentBookings.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-foreground font-semibold text-sm mb-3">Recent Bookings</p>
+          <div className="space-y-2">
+            {analytics.recentBookings.map((b: any) => (
+              <div key={b.id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                <div>
+                  <p className="text-foreground text-sm font-medium">{b.userName || "Guest"}</p>
+                  <p className="text-muted-foreground text-xs">{b.date} · {b.startTime}</p>
+                </div>
+                <p className="text-green-500 font-semibold text-sm">₹{b.totalAmount}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
+// ── Edit Turf Panel ─────────────────────────────────────────────────────────────
+function EditTurfPanel({ turf, onSuccess }: { turf: Turf; onSuccess: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [images, setImages] = useState<UploadedImage[]>(
+    (turf as any).imageUrls
+      ? (turf as any).imageUrls.map((url: string) => ({ url, previewUrl: url, name: url.split("/").pop() || "image" }))
+      : turf.imageUrl
+      ? [{ url: turf.imageUrl, previewUrl: turf.imageUrl, name: "current-image" }]
+      : []
+  );
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [imageError, setImageError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [openHour, setOpenHour] = useState((turf as any).openHour ?? 6);
+  const [closeHour, setCloseHour] = useState((turf as any).closeHour ?? 23);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const AMENITY_OPTIONS = ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water", "Lights", "First Aid"];
+  const [amenities, setAmenities] = useState<string[]>(turf.amenities || []);
+
+  const form = useForm({
+    defaultValues: {
+      name: turf.name || "",
+      address: turf.address || "",
+      pricePerHour: String(turf.pricePerHour || 1000),
+    },
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (images.length >= 5) { setImageError("You can upload up to 5 images"); return; }
+    const allowed = ["image/jpeg", "image/jpg", "image/png"];
+    if (!allowed.includes(file.type)) { setImageError("Only PNG and JPEG images are allowed"); return; }
+    setImageError("");
+    setUploadingIndex(images.length);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
+      const { url } = await res.json();
+      setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
+    } catch (err: any) {
+      URL.revokeObjectURL(previewUrl);
+      setImageError(err.message || "Failed to upload image");
+    } finally {
+      setUploadingIndex(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setImages(prev => {
+      if (!prev[index].previewUrl.startsWith("http")) URL.revokeObjectURL(prev[index].previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const onSubmit = async (values: any) => {
+    if (images.length === 0) { setImageError("At least one image is required"); return; }
+    if (openHour >= closeHour) {
+      toast({ title: "Invalid hours", description: "Close hour must be after open hour.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiRequest("PATCH", "/api/owner/turf/profile", {
+        name: values.name,
+        address: values.address,
+        pricePerHour: parseInt(values.pricePerHour),
+        openHour,
+        closeHour,
+        imageUrls: images.map(i => i.url),
+        amenities,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs"] });
+      toast({ title: "Turf updated!", description: "Your turf details have been saved." });
+      onSuccess();
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message || "Something went wrong.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-5">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <div className="space-y-4">
+          <div>
+            <label className="text-muted-foreground text-sm block mb-1.5">Turf Name</label>
+            <Input {...form.register("name")} data-testid="input-edit-name" placeholder="Turf name" className="bg-card border-border" />
+          </div>
+          <div>
+            <label className="text-muted-foreground text-sm block mb-1.5">Address</label>
+            <Input {...form.register("address")} data-testid="input-edit-address" placeholder="Full address" className="bg-card border-border" />
+          </div>
+          <div>
+            <label className="text-muted-foreground text-sm block mb-1.5">Price per Hour (₹)</label>
+            <Input {...form.register("pricePerHour")} data-testid="input-edit-price" placeholder="e.g. 1200" inputMode="numeric" className="bg-card border-border" />
+          </div>
+
+          {/* Operating Hours */}
+          <div className="bg-secondary rounded-xl p-4 space-y-3">
+            <p className="text-foreground font-semibold text-sm flex items-center gap-2"><Clock className="w-4 h-4 text-primary" />Operating Hours</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-muted-foreground text-xs block mb-1.5">Open (hour)</label>
+                <select
+                  data-testid="select-open-hour"
+                  value={openHour}
+                  onChange={e => setOpenHour(parseInt(e.target.value))}
+                  className="w-full bg-card border border-border rounded-md px-3 py-2 text-foreground text-sm"
+                >
+                  {Array.from({ length: 18 }, (_, i) => i + 4).map(h => (
+                    <option key={h} value={h}>{`${h.toString().padStart(2, "0")}:00`}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-muted-foreground text-xs block mb-1.5">Close (hour)</label>
+                <select
+                  data-testid="select-close-hour"
+                  value={closeHour}
+                  onChange={e => setCloseHour(parseInt(e.target.value))}
+                  className="w-full bg-card border border-border rounded-md px-3 py-2 text-foreground text-sm"
+                >
+                  {Array.from({ length: 18 }, (_, i) => i + 6).map(h => (
+                    <option key={h} value={h}>{`${h.toString().padStart(2, "0")}:00`}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Slots generated: {Array.from({ length: closeHour - openHour }, (_, i) => `${(openHour + i).toString().padStart(2, "0")}:00`).join(", ")}</p>
+          </div>
+
+          {/* Amenities */}
+          <div>
+            <label className="text-muted-foreground text-sm block mb-2">Amenities</label>
+            <div className="flex flex-wrap gap-2">
+              {AMENITY_OPTIONS.map(a => (
+                <button
+                  key={a}
+                  type="button"
+                  data-testid={`amenity-${a.toLowerCase().replace(/\s/g, "-")}`}
+                  onClick={() => setAmenities(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a])}
+                  className={cn("px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+                    amenities.includes(a)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-secondary text-muted-foreground border-border hover:border-primary/50"
+                  )}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Images */}
+          <div>
+            <p className="text-muted-foreground text-sm mb-2">Turf Images (up to 5)</p>
+            {images.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {images.map((img, index) => (
+                  <div key={index} className="relative group rounded-md overflow-hidden aspect-square bg-muted" data-testid={`edit-image-${index}`}>
+                    <img src={img.previewUrl} alt={img.name} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => removeImage(index)}
+                      className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {uploadingIndex !== null && (
+                  <div className="flex items-center justify-center rounded-md aspect-square bg-muted">
+                    <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+                  </div>
+                )}
+              </div>
+            )}
+            {images.length < 5 && uploadingIndex === null && (
+              <>
+                <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg" className="hidden" onChange={handleFileChange} />
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 w-full border border-dashed border-border rounded-md px-4 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                  <ImagePlus className="w-4 h-4" />
+                  Add image
+                </button>
+              </>
+            )}
+            {imageError && <p className="text-destructive text-sm mt-1">{imageError}</p>}
+          </div>
+        </div>
+
+        <Button type="submit" data-testid="button-save-turf" className="w-full" disabled={saving}>
+          {saving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Saving…</> : "Save Changes"}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+// ── Reviews Panel ──────────────────────────────────────────────────────────────
+function ReviewsPanel({ turf }: { turf: Turf }) {
+  const { data: reviews = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/owner/turfs", turf.id, "reviews"],
+    queryFn: async () => {
+      const res = await fetch(`/api/owner/turfs/${turf.id}/reviews`);
+      if (!res.ok) throw new Error("Failed to fetch reviews");
+      return res.json();
+    },
+  });
+
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    : "—";
+
+  function StarRow({ rating }: { rating: number }) {
+    return (
+      <div className="flex gap-0.5">
+        {[1, 2, 3, 4, 5].map(i => (
+          <Star key={i} className={cn("w-3.5 h-3.5", i <= rating ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")} />
+        ))}
+      </div>
+    );
+  }
+
+  if (isLoading) return <div className="mt-4 space-y-3">{[1, 2].map(i => <div key={i} className="h-20 rounded-xl bg-secondary animate-pulse" />)}</div>;
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* Summary */}
+      <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+        <div className="text-center">
+          <p className="text-foreground font-bold text-3xl">{avgRating}</p>
+          <StarRow rating={Math.round(parseFloat(avgRating as string) || 0)} />
+        </div>
+        <div className="flex-1 space-y-1">
+          {[5, 4, 3, 2, 1].map(star => {
+            const count = reviews.filter(r => r.rating === star).length;
+            const pct = reviews.length > 0 ? (count / reviews.length) * 100 : 0;
+            return (
+              <div key={star} className="flex items-center gap-2">
+                <span className="text-muted-foreground text-xs w-3">{star}</span>
+                <div className="flex-1 bg-secondary rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-muted-foreground text-xs w-4 text-right">{count}</span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-muted-foreground text-xs self-start">{reviews.length} review{reviews.length !== 1 ? "s" : ""}</p>
+      </div>
+
+      {reviews.length === 0 ? (
+        <div className="text-center py-8">
+          <MessageSquare className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+          <p className="text-muted-foreground text-sm">No reviews yet.</p>
+          <p className="text-muted-foreground text-xs mt-1">Player reviews will appear here after bookings.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {reviews.map((r: any) => (
+            <div key={r.id} data-testid={`review-${r.id}`} className="bg-secondary rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
+                    <User className="w-3.5 h-3.5 text-primary" />
+                  </div>
+                  <p className="text-foreground text-sm font-medium">{r.userName}</p>
+                </div>
+                <StarRow rating={r.rating} />
+              </div>
+              {r.comment && <p className="text-muted-foreground text-sm leading-relaxed">{r.comment}</p>}
+              <p className="text-muted-foreground text-xs">{r.createdAt ? format(new Date(r.createdAt), "dd MMM yyyy") : ""}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Slot Management Panel ──────────────────────────────────────────────────────
 function SlotManagementPanel({ turf }: { turf: Turf }) {
   const [selectedDate, setSelectedDate] = useState(format(today, "yyyy-MM-dd"));
   const queryClient = useQueryClient();
@@ -56,22 +446,14 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
 
   const blockMutation = useMutation({
     mutationFn: (slotId: string) => apiRequest("POST", `/api/owner/slots/${slotId}/block`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] });
-    },
-    onError: (err: any) => {
-      toast({ title: "Cannot block slot", description: err.message || "This slot could not be blocked.", variant: "destructive" });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] }),
+    onError: (err: any) => toast({ title: "Cannot block slot", description: err.message || "This slot could not be blocked.", variant: "destructive" }),
   });
 
   const unblockMutation = useMutation({
     mutationFn: (slotId: string) => apiRequest("POST", `/api/owner/slots/${slotId}/unblock`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] });
-    },
-    onError: (err: any) => {
-      toast({ title: "Cannot unblock slot", description: err.message || "Something went wrong.", variant: "destructive" });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] }),
+    onError: (err: any) => toast({ title: "Cannot unblock slot", description: err.message || "Something went wrong.", variant: "destructive" }),
   });
 
   const handleSlotToggle = (slot: TimeSlot) => {
@@ -100,18 +482,13 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
           const isBlocked = slot.isBlocked;
           const isAvailable = !isBooked && !isBlocked;
           return (
-            <button
-              key={slot.id}
-              data-testid={`owner-slot-${slot.id}`}
-              disabled={isBooked || isPending}
-              onClick={() => handleSlotToggle(slot)}
-              className={cn(
-                "relative rounded-lg p-3 text-center transition-all duration-150",
+            <button key={slot.id} data-testid={`owner-slot-${slot.id}`}
+              disabled={isBooked || isPending} onClick={() => handleSlotToggle(slot)}
+              className={cn("relative rounded-lg p-3 text-center transition-all duration-150",
                 isBooked && "bg-secondary opacity-50 cursor-not-allowed",
                 isBlocked && "bg-destructive/15 border border-destructive/40 cursor-pointer hover:bg-destructive/25",
                 isAvailable && "bg-primary/10 border border-primary/30 cursor-pointer hover:bg-primary/20",
-              )}
-            >
+              )}>
               <p className={cn("text-xs font-semibold", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary")}>
                 {slot.startTime}
               </p>
@@ -119,7 +496,7 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
                 ₹{slot.price}
               </p>
               <p className={cn("text-[10px] mt-1 font-medium", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary/70")}>
-                {isBooked ? "Booked" : isBlocked ? "Owner Booked" : "Open"}
+                {isBooked ? "Booked" : isBlocked ? "Blocked" : "Open"}
               </p>
             </button>
           );
@@ -135,15 +512,10 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
           const str = format(d, "yyyy-MM-dd");
           const isSelected = str === selectedDate;
           return (
-            <button
-              key={str}
-              data-testid={`date-${str}`}
-              onClick={() => setSelectedDate(str)}
-              className={cn(
-                "flex flex-col items-center px-3 py-2 rounded-lg shrink-0 min-w-[52px] transition-all",
+            <button key={str} data-testid={`date-${str}`} onClick={() => setSelectedDate(str)}
+              className={cn("flex flex-col items-center px-3 py-2 rounded-lg shrink-0 min-w-[52px] transition-all",
                 isSelected ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80",
-              )}
-            >
+              )}>
               <span className="text-[10px] font-medium opacity-80">{format(d, "EEE")}</span>
               <span className="text-base font-bold leading-tight">{format(d, "d")}</span>
               <span className="text-[10px] opacity-70">{format(d, "MMM")}</span>
@@ -152,20 +524,11 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
         })}
       </div>
       <div className="flex items-center gap-4 text-xs">
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-primary/30 border border-primary/50" />
-          <span className="text-muted-foreground">{availableCount} Open</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-destructive/20 border border-destructive/40" />
-          <span className="text-muted-foreground">{blockedCount} Owner Booked</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-secondary" />
-          <span className="text-muted-foreground">{bookedCount} Booked</span>
-        </div>
+        <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-primary/30 border border-primary/50" /><span className="text-muted-foreground">{availableCount} Open</span></div>
+        <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-destructive/20 border border-destructive/40" /><span className="text-muted-foreground">{blockedCount} Blocked</span></div>
+        <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-secondary" /><span className="text-muted-foreground">{bookedCount} Booked</span></div>
       </div>
-      <p className="text-xs text-muted-foreground">Tap an open slot to book it yourself. Tap an owner-booked slot to open it.</p>
+      <p className="text-xs text-muted-foreground">Tap an open slot to block it. Tap a blocked slot to unblock.</p>
       {isLoading ? (
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: 9 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-secondary animate-pulse" />)}
@@ -183,7 +546,11 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
   );
 }
 
+// ── Bookings Panel ─────────────────────────────────────────────────────────────
 function BookingsPanel({ turf }: { turf: Turf }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const { data: bookings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/owner/turfs", turf.id, "bookings"],
     queryFn: async () => {
@@ -193,21 +560,35 @@ function BookingsPanel({ turf }: { turf: Turf }) {
     },
   });
 
-  const upcoming = bookings.filter(b => b.date >= format(today, "yyyy-MM-dd"));
-  const past = bookings.filter(b => b.date < format(today, "yyyy-MM-dd"));
+  const cancelMutation = useMutation({
+    mutationFn: (bookingId: string) => apiRequest("POST", `/api/owner/bookings/${bookingId}/cancel`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/analytics", turf.id] });
+      toast({ title: "Booking cancelled", description: "The booking has been cancelled and slots freed." });
+    },
+    onError: (err: any) => toast({ title: "Cannot cancel", description: err.message || "Something went wrong.", variant: "destructive" }),
+  });
+
+  const upcoming = bookings.filter(b => b.date >= format(today, "yyyy-MM-dd") && b.status !== "cancelled");
+  const cancelled = bookings.filter(b => b.status === "cancelled");
+  const past = bookings.filter(b => b.date < format(today, "yyyy-MM-dd") && b.status !== "cancelled");
 
   const BookingCard = ({ b }: { b: any }) => (
-    <div data-testid={`booking-card-${b.id}`} className="bg-secondary rounded-xl p-4 space-y-3">
+    <div data-testid={`booking-card-${b.id}`} className={cn("bg-secondary rounded-xl p-4 space-y-3", b.status === "cancelled" && "opacity-60")}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-primary shrink-0" />
           <p className="text-foreground font-semibold text-sm">{b.date}</p>
         </div>
-        <span className="text-xs bg-primary/15 text-primary font-medium px-2 py-0.5 rounded-full">{b.bookingCode}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs bg-primary/15 text-primary font-medium px-2 py-0.5 rounded-full">{b.bookingCode}</span>
+          {b.status === "cancelled" && <span className="text-xs bg-destructive/20 text-destructive font-medium px-2 py-0.5 rounded-full">Cancelled</span>}
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-        <p className="text-foreground text-sm">{b.startTime} – {b.endTime} <span className="text-muted-foreground text-xs">({b.duration}h)</span></p>
+        <p className="text-foreground text-sm">{b.startTime} – {b.endTime}<span className="text-muted-foreground text-xs"> ({b.duration}h)</span></p>
       </div>
       <div className="border-t border-border pt-3 space-y-2">
         <div className="flex items-center gap-2">
@@ -217,9 +598,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         {b.userPhone && (
           <div className="flex items-center gap-2">
             <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
-            <a href={`tel:${b.userPhone}`} data-testid={`link-call-${b.id}`} className="text-primary text-sm font-medium">
-              {b.userPhone}
-            </a>
+            <a href={`tel:${b.userPhone}`} data-testid={`link-call-${b.id}`} className="text-primary text-sm font-medium">{b.userPhone}</a>
           </div>
         )}
       </div>
@@ -227,26 +606,26 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         <span>Total: <span className="text-foreground font-semibold">₹{b.totalAmount}</span></span>
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
+      {b.status !== "cancelled" && b.date >= format(today, "yyyy-MM-dd") && (
+        <Button variant="outline" size="sm" data-testid={`button-cancel-${b.id}`}
+          className="w-full text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+          disabled={cancelMutation.isPending}
+          onClick={() => cancelMutation.mutate(b.id)}>
+          {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <CancelIcon className="w-3.5 h-3.5 mr-1.5" />}
+          Cancel Booking
+        </Button>
+      )}
     </div>
   );
 
-  if (isLoading) {
-    return (
-      <div className="mt-4 space-y-3">
-        {[1, 2].map(i => <div key={i} className="h-32 rounded-xl bg-secondary animate-pulse" />)}
-      </div>
-    );
-  }
+  if (isLoading) return <div className="mt-4 space-y-3">{[1, 2].map(i => <div key={i} className="h-32 rounded-xl bg-secondary animate-pulse" />)}</div>;
 
-  if (bookings.length === 0) {
-    return (
-      <div className="mt-6 text-center py-8">
-        <Receipt className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-        <p className="text-muted-foreground text-sm">No bookings yet for this turf.</p>
-        <p className="text-muted-foreground text-xs mt-1">Bookings made by players will appear here.</p>
-      </div>
-    );
-  }
+  if (bookings.length === 0) return (
+    <div className="mt-6 text-center py-8">
+      <Receipt className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+      <p className="text-muted-foreground text-sm">No bookings yet for this turf.</p>
+    </div>
+  );
 
   return (
     <div className="mt-4 space-y-5">
@@ -262,10 +641,17 @@ function BookingsPanel({ turf }: { turf: Turf }) {
           {past.map(b => <BookingCard key={b.id} b={b} />)}
         </div>
       )}
+      {cancelled.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-muted-foreground">Cancelled ({cancelled.length})</p>
+          {cancelled.map(b => <BookingCard key={b.id} b={b} />)}
+        </div>
+      )}
     </div>
   );
 }
 
+// ── Turf Submit Form ───────────────────────────────────────────────────────────
 function TurfSubmitForm() {
   const { submitTurf, refreshUser } = useAuth();
   const { toast } = useToast();
@@ -311,22 +697,15 @@ function TurfSubmitForm() {
     }
   };
 
-  const removeImage = (index: number) => {
-    setImages(prev => { URL.revokeObjectURL(prev[index].previewUrl); return prev.filter((_, i) => i !== index); });
-  };
-
   const onSubmit = async (values: TurfFormValues) => {
     if (images.length === 0) { setImageError("At least one turf image is required"); return; }
     setIsSubmitting(true);
     try {
       await submitTurf({
-        turfName: values.turfName,
-        turfLocation: values.turfLocation,
-        turfAddress: values.turfAddress,
-        turfPincode: values.turfPincode,
+        turfName: values.turfName, turfLocation: values.turfLocation,
+        turfAddress: values.turfAddress, turfPincode: values.turfPincode,
         turfImageUrls: images.map(i => i.url),
-        turfLength: parseInt(values.turfLength),
-        turfWidth: parseInt(values.turfWidth),
+        turfLength: parseInt(values.turfLength), turfWidth: parseInt(values.turfWidth),
       });
       await refreshUser();
       toast({ title: "Turf submitted!", description: "Your turf is now pending review." });
@@ -346,7 +725,6 @@ function TurfSubmitForm() {
           <p className="text-muted-foreground text-xs mt-0.5">Step 2 — Now list your turf. It will go live after a separate review.</p>
         </div>
       </div>
-
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
           <div>
@@ -355,13 +733,10 @@ function TurfSubmitForm() {
               <FormField control={form.control} name="turfName" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-muted-foreground text-sm">Turf name</FormLabel>
-                  <FormControl>
-                    <Input {...field} data-testid="input-turf-name" placeholder="e.g. Green Valley Cricket Ground" className="bg-card border-border" />
-                  </FormControl>
+                  <FormControl><Input {...field} data-testid="input-turf-name" placeholder="e.g. Green Valley Cricket Ground" className="bg-card border-border" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-
               <FormField control={form.control} name="turfLocation" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-muted-foreground text-sm">Location / City</FormLabel>
@@ -371,74 +746,46 @@ function TurfSubmitForm() {
                         <SelectValue placeholder="Select your location" />
                       </SelectTrigger>
                       <SelectContent>
-                        {locations.length === 0 ? (
-                          <SelectItem value="__loading" disabled>Loading locations…</SelectItem>
-                        ) : (
-                          locations.map(loc => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)
-                        )}
+                        {locations.length === 0 ? <SelectItem value="__loading" disabled>Loading…</SelectItem>
+                          : locations.map(loc => <SelectItem key={loc} value={loc}>{loc}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-
               <FormField control={form.control} name="turfAddress" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-muted-foreground text-sm">Full address</FormLabel>
-                  <FormControl>
-                    <Input {...field} data-testid="input-turf-address" placeholder="Street, area, landmark" className="bg-card border-border" />
-                  </FormControl>
+                  <FormControl><Input {...field} data-testid="input-turf-address" placeholder="Street, area, landmark" className="bg-card border-border" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-
               <FormField control={form.control} name="turfPincode" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-muted-foreground text-sm">Pincode</FormLabel>
-                  <FormControl>
-                    <Input {...field} data-testid="input-turf-pincode" placeholder="6-digit pincode" inputMode="numeric" maxLength={6} className="bg-card border-border" />
-                  </FormControl>
+                  <FormControl><Input {...field} data-testid="input-turf-pincode" placeholder="6-digit pincode" inputMode="numeric" maxLength={6} className="bg-card border-border" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-
               <div className="grid grid-cols-2 gap-3">
                 <FormField control={form.control} name="turfLength" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Length <span className="text-xs text-muted-foreground/70">(meters)</span></FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        data-testid="input-turf-length"
-                        placeholder="e.g. 120"
-                        inputMode="numeric"
-                        onChange={e => field.onChange(e.target.value.replace(/\D/g, ""))}
-                        className="bg-card border-border"
-                      />
-                    </FormControl>
+                    <FormLabel className="text-muted-foreground text-sm">Length <span className="text-xs text-muted-foreground/70">(m)</span></FormLabel>
+                    <FormControl><Input {...field} data-testid="input-turf-length" placeholder="e.g. 120" inputMode="numeric"
+                      onChange={e => field.onChange(e.target.value.replace(/\D/g, ""))} className="bg-card border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
-
                 <FormField control={form.control} name="turfWidth" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Width <span className="text-xs text-muted-foreground/70">(meters)</span></FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        data-testid="input-turf-width"
-                        placeholder="e.g. 75"
-                        inputMode="numeric"
-                        onChange={e => field.onChange(e.target.value.replace(/\D/g, ""))}
-                        className="bg-card border-border"
-                      />
-                    </FormControl>
+                    <FormLabel className="text-muted-foreground text-sm">Width <span className="text-xs text-muted-foreground/70">(m)</span></FormLabel>
+                    <FormControl><Input {...field} data-testid="input-turf-width" placeholder="e.g. 75" inputMode="numeric"
+                      onChange={e => field.onChange(e.target.value.replace(/\D/g, ""))} className="bg-card border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
               </div>
-
               <div>
                 <p className="text-muted-foreground text-sm mb-2">Turf images (PNG or JPEG, up to 5)</p>
                 {images.length > 0 && (
@@ -446,32 +793,20 @@ function TurfSubmitForm() {
                     {images.map((img, index) => (
                       <div key={index} className="relative group rounded-md overflow-hidden aspect-square bg-muted" data-testid={`image-preview-${index}`}>
                         <img src={img.previewUrl} alt={img.name} className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          data-testid={`button-remove-image-${index}`}
-                          onClick={() => removeImage(index)}
-                          className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
+                        <button type="button" data-testid={`button-remove-image-${index}`} onClick={() => { URL.revokeObjectURL(img.previewUrl); setImages(prev => prev.filter((_, i) => i !== index)); }}
+                          className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
-                    {uploadingIndex !== null && (
-                      <div className="flex items-center justify-center rounded-md aspect-square bg-muted">
-                        <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-                      </div>
-                    )}
+                    {uploadingIndex !== null && <div className="flex items-center justify-center rounded-md aspect-square bg-muted"><Loader2 className="w-5 h-5 text-muted-foreground animate-spin" /></div>}
                   </div>
                 )}
                 {images.length < 5 && uploadingIndex === null && (
                   <>
                     <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg" className="hidden" data-testid="input-image-file" onChange={handleFileChange} />
-                    <button
-                      type="button"
-                      data-testid="button-add-image"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 w-full border border-dashed border-border rounded-md px-4 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                    >
+                    <button type="button" data-testid="button-add-image" onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 w-full border border-dashed border-border rounded-md px-4 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                       <ImagePlus className="w-4 h-4" />
                       {images.length === 0 ? "Upload a turf image" : "Add another image"}
                       <span className="ml-auto text-xs opacity-60">PNG / JPEG · max 5 MB</span>
@@ -482,7 +817,6 @@ function TurfSubmitForm() {
               </div>
             </div>
           </div>
-
           <Button type="submit" data-testid="button-submit-turf" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</> : "Submit turf for review"}
           </Button>
@@ -492,11 +826,15 @@ function TurfSubmitForm() {
   );
 }
 
+// ── Main TurfOwnerHome ─────────────────────────────────────────────────────────
+type TabType = "slots" | "bookings" | "analytics" | "edit" | "reviews";
+
 export default function TurfOwnerHome() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
   const [expandedTurfId, setExpandedTurfId] = useState<string | null>(null);
-  const [activeTabs, setActiveTabs] = useState<Record<string, "slots" | "bookings">>({});
+  const [activeTabs, setActiveTabs] = useState<Record<string, TabType>>({});
+  const queryClient = useQueryClient();
 
   const { data: turfs = [] } = useQuery<Turf[]>({
     queryKey: ["/api/owner/turfs"],
@@ -508,6 +846,14 @@ export default function TurfOwnerHome() {
     navigate("/");
   };
 
+  const tabs: { key: TabType; label: string; icon: any }[] = [
+    { key: "slots", label: "Slots", icon: CalendarDays },
+    { key: "bookings", label: "Bookings", icon: BookOpen },
+    { key: "analytics", label: "Analytics", icon: TrendingUp },
+    { key: "edit", label: "Edit Turf", icon: Pencil },
+    { key: "reviews", label: "Reviews", icon: Star },
+  ];
+
   if (!user) return null;
 
   return (
@@ -515,9 +861,7 @@ export default function TurfOwnerHome() {
       <div className="flex items-center justify-between px-5 pt-8 pb-4">
         <div>
           <p className="text-muted-foreground text-xs uppercase tracking-wider font-medium">QuickTurf Owner</p>
-          <h1 className="text-foreground font-bold text-xl mt-0.5">
-            {user.fullName ?? `@${user.username}`}
-          </h1>
+          <h1 className="text-foreground font-bold text-xl mt-0.5">{user.fullName ?? `@${user.username}`}</h1>
           {user.fullName && <p className="text-muted-foreground text-xs">@{user.username}</p>}
         </div>
         <Button size="icon" variant="ghost" data-testid="button-logout" onClick={handleLogout}>
@@ -526,8 +870,7 @@ export default function TurfOwnerHome() {
       </div>
 
       <div className="flex-1 px-5 pb-10">
-
-        {/* ── Pending Account ──────────────────────── */}
+        {/* ── Pending Account ──────────────── */}
         {user.ownerStatus === "pending_account" && (
           <div className="flex flex-col items-center text-center pt-12 pb-8">
             <div className="w-20 h-20 rounded-full bg-yellow-500/15 flex items-center justify-center mb-5">
@@ -535,13 +878,13 @@ export default function TurfOwnerHome() {
             </div>
             <h2 className="text-foreground text-xl font-bold mb-2">Account under review</h2>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
-              Your account registration is being reviewed by our team. Once approved, you'll be able to log in and list your turf.
+              Your account registration is being reviewed by our team. Once approved, you'll be able to list your turf.
             </p>
             <p className="text-muted-foreground text-xs mt-6">No further action needed right now.</p>
           </div>
         )}
 
-        {/* ── Account Rejected ─────────────────────── */}
+        {/* ── Account Rejected ─────────────── */}
         {user.ownerStatus === "account_rejected" && (
           <div className="flex flex-col items-center text-center pt-12">
             <div className="w-20 h-20 rounded-full bg-destructive/15 flex items-center justify-center mb-5">
@@ -549,17 +892,15 @@ export default function TurfOwnerHome() {
             </div>
             <h2 className="text-foreground text-xl font-bold mb-2">Account not approved</h2>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
-              Your account application was not approved at this time. Please contact us for more information.
+              Your account application was not approved. Please contact us for more information.
             </p>
           </div>
         )}
 
-        {/* ── Account Approved — Submit Turf ──────── */}
-        {user.ownerStatus === "account_approved" && !user.turfStatus && (
-          <TurfSubmitForm />
-        )}
+        {/* ── Account Approved — Submit Turf ── */}
+        {user.ownerStatus === "account_approved" && !user.turfStatus && <TurfSubmitForm />}
 
-        {/* ── Turf Pending Review ──────────────────── */}
+        {/* ── Turf Pending Review ──────────── */}
         {user.ownerStatus === "account_approved" && user.turfStatus === "pending_turf" && (
           <div className="flex flex-col items-center text-center pt-12 pb-8">
             <div className="w-20 h-20 rounded-full bg-yellow-500/15 flex items-center justify-center mb-5">
@@ -567,63 +908,27 @@ export default function TurfOwnerHome() {
             </div>
             <h2 className="text-foreground text-xl font-bold mb-2">Turf under review</h2>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
-              Your turf details have been submitted and are being reviewed by our team. Once approved, your turf will go live and you can manage bookings here.
+              Your turf details have been submitted and are being reviewed. Once approved, your turf will go live.
             </p>
             {user.turfName && (
               <div className="w-full mt-8 bg-card border border-border rounded-xl p-4 text-left space-y-3">
                 <p className="text-foreground font-semibold text-sm">Submitted turf details</p>
-                <div className="flex items-start gap-3">
-                  <Building2 className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Turf name</p>
-                    <p className="text-foreground text-sm font-medium">{user.turfName}</p>
+                {[
+                  { icon: Building2, label: "Turf name", value: user.turfName },
+                  { icon: MapPin, label: "Location", value: user.turfLocation },
+                  { icon: MapPin, label: "Address", value: user.turfAddress },
+                ].filter(r => r.value).map(r => (
+                  <div key={r.label} className="flex items-start gap-3">
+                    <r.icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div><p className="text-xs text-muted-foreground">{r.label}</p><p className="text-foreground text-sm font-medium">{r.value}</p></div>
                   </div>
-                </div>
-                {user.turfLocation && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Location</p>
-                      <p className="text-foreground text-sm font-medium">{user.turfLocation}</p>
-                    </div>
-                  </div>
-                )}
-                {user.turfAddress && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Address</p>
-                      <p className="text-foreground text-sm font-medium">{user.turfAddress}</p>
-                    </div>
-                  </div>
-                )}
-                {(user.turfLength || user.turfWidth) && (
-                  <div className="flex items-start gap-3">
-                    <Building2 className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Dimensions</p>
-                      <p className="text-foreground text-sm font-medium">
-                        {user.turfLength ? `${user.turfLength}m` : "—"} × {user.turfWidth ? `${user.turfWidth}m` : "—"}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {user.turfImageUrls && user.turfImageUrls.length > 0 && (
-                  <div className="flex items-start gap-3">
-                    <ImageIcon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Images submitted</p>
-                      <p className="text-foreground text-sm font-medium">{user.turfImageUrls.length} image{user.turfImageUrls.length > 1 ? "s" : ""}</p>
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             )}
-            <p className="text-muted-foreground text-xs mt-6">No further action needed.</p>
           </div>
         )}
 
-        {/* ── Turf Rejected — Resubmit ─────────────── */}
+        {/* ── Turf Rejected — Resubmit ──────── */}
         {user.ownerStatus === "account_approved" && user.turfStatus === "turf_rejected" && (
           <div>
             <div className="flex flex-col items-center text-center pt-8 pb-6">
@@ -639,7 +944,7 @@ export default function TurfOwnerHome() {
           </div>
         )}
 
-        {/* ── Turf Approved — Dashboard ────────────── */}
+        {/* ── Turf Approved — Dashboard ──────── */}
         {user.ownerStatus === "account_approved" && user.turfStatus === "turf_approved" && (
           <div>
             <div className="flex items-center gap-3 bg-primary/10 border border-primary/20 rounded-xl px-4 py-3 mb-6">
@@ -659,6 +964,7 @@ export default function TurfOwnerHome() {
                 <h2 className="text-foreground font-semibold text-base">Your turfs</h2>
                 {turfs.map(turf => {
                   const isExpanded = expandedTurfId === turf.id;
+                  const activeTab = activeTabs[turf.id] ?? "slots";
                   return (
                     <div key={turf.id} data-testid={`card-turf-${turf.id}`} className="bg-card border border-border rounded-xl overflow-hidden">
                       {turf.imageUrl && <img src={turf.imageUrl} alt={turf.name} className="w-full h-36 object-cover" />}
@@ -672,15 +978,11 @@ export default function TurfOwnerHome() {
                           <p className="text-primary font-semibold text-sm">₹{turf.pricePerHour}/hr</p>
                           <span className="text-xs text-muted-foreground">{turf.isAvailable ? "Available" : "Unavailable"}</span>
                         </div>
-
-                        {/* Expand / Collapse toggle */}
-                        <button
-                          data-testid={`button-manage-${turf.id}`}
+                        <button data-testid={`button-manage-${turf.id}`}
                           onClick={() => setExpandedTurfId(isExpanded ? null : turf.id)}
-                          className="mt-4 w-full flex items-center justify-between px-4 py-2.5 bg-secondary rounded-md text-sm font-medium text-foreground hover:bg-secondary/70 transition-colors"
-                        >
+                          className="mt-4 w-full flex items-center justify-between px-4 py-2.5 bg-secondary rounded-md text-sm font-medium text-foreground hover:bg-secondary/70 transition-colors">
                           <div className="flex items-center gap-2">
-                            <CalendarDays className="w-4 h-4 text-primary" />
+                            <Settings className="w-4 h-4 text-primary" />
                             <span>Manage</span>
                           </div>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -689,40 +991,32 @@ export default function TurfOwnerHome() {
                         {isExpanded && (
                           <div className="mt-4">
                             {/* Tabs */}
-                            <div className="flex rounded-lg bg-secondary p-1 gap-1">
-                              <button
-                                data-testid={`tab-slots-${turf.id}`}
-                                onClick={() => setActiveTabs(prev => ({ ...prev, [turf.id]: "slots" }))}
-                                className={cn(
-                                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all",
-                                  (activeTabs[turf.id] ?? "slots") === "slots"
-                                    ? "bg-background text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                <CalendarDays className="w-3.5 h-3.5" />
-                                Slot Blocking
-                              </button>
-                              <button
-                                data-testid={`tab-bookings-${turf.id}`}
-                                onClick={() => setActiveTabs(prev => ({ ...prev, [turf.id]: "bookings" }))}
-                                className={cn(
-                                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all",
-                                  activeTabs[turf.id] === "bookings"
-                                    ? "bg-background text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                <BookOpen className="w-3.5 h-3.5" />
-                                Bookings
-                              </button>
+                            <div className="flex overflow-x-auto gap-1 bg-secondary rounded-lg p-1 no-scrollbar">
+                              {tabs.map(tab => (
+                                <button key={tab.key} data-testid={`tab-${tab.key}-${turf.id}`}
+                                  onClick={() => setActiveTabs(prev => ({ ...prev, [turf.id]: tab.key }))}
+                                  className={cn(
+                                    "flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium transition-all shrink-0",
+                                    activeTab === tab.key
+                                      ? "bg-background text-foreground shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  )}>
+                                  <tab.icon className="w-3.5 h-3.5" />
+                                  {tab.label}
+                                </button>
+                              ))}
                             </div>
 
                             {/* Tab Content */}
-                            {(activeTabs[turf.id] ?? "slots") === "slots"
-                              ? <SlotManagementPanel turf={turf} />
-                              : <BookingsPanel turf={turf} />
-                            }
+                            {activeTab === "slots" && <SlotManagementPanel turf={turf} />}
+                            {activeTab === "bookings" && <BookingsPanel turf={turf} />}
+                            {activeTab === "analytics" && <AnalyticsPanel turf={turf} />}
+                            {activeTab === "edit" && (
+                              <EditTurfPanel turf={turf} onSuccess={() => {
+                                queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs"] });
+                              }} />
+                            )}
+                            {activeTab === "reviews" && <ReviewsPanel turf={turf} />}
                           </div>
                         )}
                       </div>
