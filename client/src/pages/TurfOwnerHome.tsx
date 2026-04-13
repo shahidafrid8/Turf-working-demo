@@ -6,10 +6,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format, addDays, startOfToday } from "date-fns";
 import {
-  Clock, CheckCircle, XCircle, MapPin, Building2, Image as ImageIcon,
+  Clock, CheckCircle, XCircle, MapPin, Building2,
   LogOut, ChevronDown, ChevronUp, CalendarDays, ImagePlus, Loader2, Trash2, ShieldCheck,
-  Phone, User, BookOpen, Receipt, TrendingUp, Settings, Star, AlertCircle,
-  IndianRupee, BarChart2, Edit2, XCircle as CancelIcon, MessageSquare, Pencil
+  Phone, User, BookOpen, Receipt, TrendingUp, Settings, Star, Plus,
+  IndianRupee, BarChart2, MessageSquare, Pencil, FileText, Printer, PlusCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -546,6 +546,63 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
   );
 }
 
+// ── Export Utilities ───────────────────────────────────────────────────────────
+function downloadCSV(bookings: any[], turfName: string) {
+  const headers = ["Booking Code", "Date", "Start Time", "End Time", "Duration (min)", "Player Name", "Phone", "Total (₹)", "Paid (₹)", "Balance (₹)", "Status"];
+  const rows = bookings.map(b => [
+    b.bookingCode, b.date, b.startTime, b.endTime, b.duration,
+    b.userName || "Guest", b.userPhone || "N/A",
+    b.totalAmount, b.paidAmount, b.balanceAmount, b.status,
+  ]);
+  const csv = [headers, ...rows]
+    .map(row => row.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${turfName.replace(/\s+/g, "_")}_bookings_${format(today, "yyyy-MM-dd")}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function printBookingsPDF(bookings: any[], turfName: string) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const rows = bookings
+    .map(b => `<tr>
+      <td>${b.bookingCode}</td><td>${b.date}</td>
+      <td>${b.startTime}–${b.endTime}</td>
+      <td>${b.userName || "Guest"}</td><td>${b.userPhone || "N/A"}</td>
+      <td>₹${b.totalAmount}</td><td>₹${b.paidAmount}</td><td>₹${b.balanceAmount}</td>
+      <td>${b.status}</td>
+    </tr>`)
+    .join("");
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>${turfName} – Bookings</title>
+    <style>
+      body{font-family:sans-serif;padding:24px;color:#111}
+      h1{font-size:20px;margin:0 0 4px}p.sub{color:#666;font-size:12px;margin:0 0 16px}
+      table{border-collapse:collapse;width:100%}
+      th,td{border:1px solid #ddd;padding:7px 10px;font-size:12px;text-align:left}
+      th{background:#f5f5f5;font-weight:600}tr:nth-child(even){background:#fafafa}
+      .btn{margin-bottom:16px;padding:8px 18px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}
+      @media print{.btn{display:none}}
+    </style>
+  </head><body>
+    <h1>${turfName} — Bookings Report</h1>
+    <p class="sub">Generated on ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · ${bookings.length} bookings</p>
+    <button class="btn" onclick="window.print()">Print / Save as PDF</button>
+    <table>
+      <thead><tr><th>Code</th><th>Date</th><th>Time</th><th>Player</th><th>Phone</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </body></html>`);
+  w.document.close();
+}
+
 // ── Bookings Panel ─────────────────────────────────────────────────────────────
 function BookingsPanel({ turf }: { turf: Turf }) {
   const { toast } = useToast();
@@ -573,6 +630,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
   const upcoming = bookings.filter(b => b.date >= format(today, "yyyy-MM-dd") && b.status !== "cancelled");
   const cancelled = bookings.filter(b => b.status === "cancelled");
   const past = bookings.filter(b => b.date < format(today, "yyyy-MM-dd") && b.status !== "cancelled");
+  const activeBookings = bookings.filter(b => b.status !== "cancelled");
 
   const BookingCard = ({ b }: { b: any }) => (
     <div data-testid={`booking-card-${b.id}`} className={cn("bg-secondary rounded-xl p-4 space-y-3", b.status === "cancelled" && "opacity-60")}>
@@ -588,7 +646,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
       </div>
       <div className="flex items-center gap-2">
         <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-        <p className="text-foreground text-sm">{b.startTime} – {b.endTime}<span className="text-muted-foreground text-xs"> ({b.duration}h)</span></p>
+        <p className="text-foreground text-sm">{b.startTime} – {b.endTime}<span className="text-muted-foreground text-xs"> ({b.duration}min)</span></p>
       </div>
       <div className="border-t border-border pt-3 space-y-2">
         <div className="flex items-center gap-2">
@@ -611,7 +669,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
           className="w-full text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
           disabled={cancelMutation.isPending}
           onClick={() => cancelMutation.mutate(b.id)}>
-          {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <CancelIcon className="w-3.5 h-3.5 mr-1.5" />}
+          {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <XCircle className="w-3.5 h-3.5 mr-1.5" />}
           Cancel Booking
         </Button>
       )}
@@ -629,6 +687,22 @@ function BookingsPanel({ turf }: { turf: Turf }) {
 
   return (
     <div className="mt-4 space-y-5">
+      {/* Export Buttons */}
+      {activeBookings.length > 0 && (
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" data-testid="button-export-csv"
+            className="flex-1 text-xs"
+            onClick={() => { downloadCSV(activeBookings, turf.name); toast({ title: "CSV downloaded!", description: `${activeBookings.length} bookings exported.` }); }}>
+            <FileText className="w-3.5 h-3.5 mr-1.5" />Export CSV
+          </Button>
+          <Button variant="outline" size="sm" data-testid="button-export-pdf"
+            className="flex-1 text-xs"
+            onClick={() => printBookingsPDF(activeBookings, turf.name)}>
+            <Printer className="w-3.5 h-3.5 mr-1.5" />Print / PDF
+          </Button>
+        </div>
+      )}
+
       {upcoming.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm font-semibold text-foreground">Upcoming ({upcoming.length})</p>
@@ -826,6 +900,178 @@ function TurfSubmitForm() {
   );
 }
 
+// ── Add New Turf Form ──────────────────────────────────────────────────────────
+const newTurfSchema = z.object({
+  name: z.string().min(3, "Name must be at least 3 characters"),
+  location: z.string().min(1, "Select a city"),
+  address: z.string().min(5, "Full address required"),
+  pincode: z.string().regex(/^\d{6}$/, "6-digit pincode required"),
+  length: z.string().regex(/^\d+$/).refine(v => parseInt(v) >= 1),
+  width: z.string().regex(/^\d+$/).refine(v => parseInt(v) >= 1),
+  pricePerHour: z.string().regex(/^\d+$/).refine(v => parseInt(v) >= 100, "Min ₹100"),
+});
+
+function NewTurfForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [images, setImages] = useState<UploadedImage[]>([]);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [imageError, setImageError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [locations, setLocations] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch("/api/locations").then(r => r.json()).then(setLocations).catch(() => {});
+  }, []);
+
+  const form = useForm({ resolver: zodResolver(newTurfSchema),
+    defaultValues: { name: "", location: "", address: "", pincode: "", length: "", width: "", pricePerHour: "1000" },
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (images.length >= 5) { setImageError("Max 5 images"); return; }
+    const allowed = ["image/jpeg", "image/jpg", "image/png"];
+    if (!allowed.includes(file.type)) { setImageError("Only PNG/JPEG allowed"); return; }
+    setImageError("");
+    setUploadingIndex(images.length);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const fd = new FormData(); fd.append("image", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
+      const { url } = await res.json();
+      setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
+    } catch (err: any) {
+      URL.revokeObjectURL(previewUrl);
+      setImageError(err.message);
+    } finally {
+      setUploadingIndex(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onSubmit = async (values: any) => {
+    if (images.length === 0) { setImageError("At least one image required"); return; }
+    setSubmitting(true);
+    try {
+      await apiRequest("POST", "/api/owner/turfs", {
+        name: values.name, location: values.location, address: values.address,
+        pincode: values.pincode, imageUrls: images.map(i => i.url),
+        length: parseInt(values.length), width: parseInt(values.width),
+        pricePerHour: parseInt(values.pricePerHour),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs"] });
+      toast({ title: "Turf submitted!", description: "Your new turf is pending admin review." });
+      onSuccess();
+    } catch (err: any) {
+      toast({ title: "Submission failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 mt-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-foreground font-semibold">Add New Turf</h3>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <XCircle className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-xs text-blue-400">
+        This turf will be reviewed by admin before going live.
+      </div>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4">
+            <FormField control={form.control} name="name" render={({ field }) => (
+              <FormItem><FormLabel className="text-xs text-muted-foreground">Turf Name</FormLabel>
+                <FormControl><Input {...field} data-testid="input-new-turf-name" placeholder="e.g. Premier Arena" className="bg-secondary border-border" /></FormControl>
+                <FormMessage /></FormItem>
+            )} />
+            <FormField control={form.control} name="location" render={({ field }) => (
+              <FormItem><FormLabel className="text-xs text-muted-foreground">City</FormLabel>
+                <FormControl>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <SelectTrigger data-testid="select-new-turf-location" className="bg-secondary border-border">
+                      <SelectValue placeholder="Select city" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </FormControl><FormMessage /></FormItem>
+            )} />
+            <FormField control={form.control} name="address" render={({ field }) => (
+              <FormItem><FormLabel className="text-xs text-muted-foreground">Address</FormLabel>
+                <FormControl><Input {...field} data-testid="input-new-turf-address" placeholder="Full address" className="bg-secondary border-border" /></FormControl>
+                <FormMessage /></FormItem>
+            )} />
+            <div className="grid grid-cols-2 gap-3">
+              <FormField control={form.control} name="pincode" render={({ field }) => (
+                <FormItem><FormLabel className="text-xs text-muted-foreground">Pincode</FormLabel>
+                  <FormControl><Input {...field} data-testid="input-new-turf-pincode" placeholder="6-digit" inputMode="numeric" maxLength={6} className="bg-secondary border-border" /></FormControl>
+                  <FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="pricePerHour" render={({ field }) => (
+                <FormItem><FormLabel className="text-xs text-muted-foreground">Price/hr (₹)</FormLabel>
+                  <FormControl><Input {...field} data-testid="input-new-turf-price" placeholder="1000" inputMode="numeric" className="bg-secondary border-border" /></FormControl>
+                  <FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="length" render={({ field }) => (
+                <FormItem><FormLabel className="text-xs text-muted-foreground">Length (m)</FormLabel>
+                  <FormControl><Input {...field} data-testid="input-new-turf-length" placeholder="120" inputMode="numeric" onChange={e => field.onChange(e.target.value.replace(/\D/g,""))} className="bg-secondary border-border" /></FormControl>
+                  <FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="width" render={({ field }) => (
+                <FormItem><FormLabel className="text-xs text-muted-foreground">Width (m)</FormLabel>
+                  <FormControl><Input {...field} data-testid="input-new-turf-width" placeholder="75" inputMode="numeric" onChange={e => field.onChange(e.target.value.replace(/\D/g,""))} className="bg-secondary border-border" /></FormControl>
+                  <FormMessage /></FormItem>
+              )} />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Images (up to 5)</p>
+              {images.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {images.map((img, i) => (
+                    <div key={i} className="relative group rounded-md overflow-hidden aspect-square bg-muted">
+                      <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setImages(p => p.filter((_,j)=>j!==i))}
+                        className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {uploadingIndex !== null && <div className="flex items-center justify-center rounded-md aspect-square bg-muted"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>}
+                </div>
+              )}
+              {images.length < 5 && uploadingIndex === null && (
+                <>
+                  <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg" className="hidden" onChange={handleFileChange} />
+                  <button type="button" onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 w-full border border-dashed border-border rounded-md px-3 py-2 text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    <ImagePlus className="w-3.5 h-3.5" /> Add image
+                  </button>
+                </>
+              )}
+              {imageError && <p className="text-destructive text-xs mt-1">{imageError}</p>}
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button type="submit" data-testid="button-submit-new-turf" className="flex-1" disabled={submitting}>
+              {submitting ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Submitting…</> : "Submit for Review"}
+            </Button>
+          </div>
+        </form>
+      </Form>
+    </div>
+  );
+}
+
 // ── Main TurfOwnerHome ─────────────────────────────────────────────────────────
 type TabType = "slots" | "bookings" | "analytics" | "edit" | "reviews";
 
@@ -834,12 +1080,18 @@ export default function TurfOwnerHome() {
   const [, navigate] = useLocation();
   const [expandedTurfId, setExpandedTurfId] = useState<string | null>(null);
   const [activeTabs, setActiveTabs] = useState<Record<string, TabType>>({});
+  const [showNewTurfForm, setShowNewTurfForm] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: turfs = [] } = useQuery<Turf[]>({
     queryKey: ["/api/owner/turfs"],
     enabled: user?.turfStatus === "turf_approved",
+    select: (data) => data as any[],
   });
+
+  const approvedTurfs = (turfs as any[]).filter(t => !t.pendingStatus);
+  const pendingTurfs = (turfs as any[]).filter(t => t.pendingStatus === "pending_review");
+  const rejectedTurfs = (turfs as any[]).filter(t => t.pendingStatus === "rejected");
 
   const handleLogout = async () => {
     await logout();
@@ -949,10 +1201,11 @@ export default function TurfOwnerHome() {
           <div>
             <div className="flex items-center gap-3 bg-primary/10 border border-primary/20 rounded-xl px-4 py-3 mb-6">
               <CheckCircle className="w-5 h-5 text-primary shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="text-primary font-semibold text-sm">Turf live</p>
-                <p className="text-muted-foreground text-xs">Your turf is active and accepting bookings</p>
+                <p className="text-muted-foreground text-xs">Your turfs are active and accepting bookings</p>
               </div>
+              <span className="text-xs text-muted-foreground">{approvedTurfs.length} active</span>
             </div>
 
             {turfs.length === 0 ? (
@@ -961,15 +1214,22 @@ export default function TurfOwnerHome() {
               </div>
             ) : (
               <div className="space-y-4">
-                <h2 className="text-foreground font-semibold text-base">Your turfs</h2>
-                {turfs.map(turf => {
+                <div className="flex items-center justify-between">
+                  <h2 className="text-foreground font-semibold text-base">Your turfs ({turfs.length})</h2>
+                </div>
+
+                {/* Approved Turfs */}
+                {approvedTurfs.map((turf: any) => {
                   const isExpanded = expandedTurfId === turf.id;
                   const activeTab = activeTabs[turf.id] ?? "slots";
                   return (
                     <div key={turf.id} data-testid={`card-turf-${turf.id}`} className="bg-card border border-border rounded-xl overflow-hidden">
                       {turf.imageUrl && <img src={turf.imageUrl} alt={turf.name} className="w-full h-36 object-cover" />}
                       <div className="p-4">
-                        <h3 className="text-foreground font-semibold">{turf.name}</h3>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-foreground font-semibold">{turf.name}</h3>
+                          <span className="shrink-0 text-xs bg-primary/15 text-primary px-2 py-0.5 rounded-full">Live</span>
+                        </div>
                         <div className="flex items-center gap-1 mt-1">
                           <MapPin className="w-3 h-3 text-muted-foreground" />
                           <p className="text-muted-foreground text-xs">{turf.location}</p>
@@ -990,7 +1250,6 @@ export default function TurfOwnerHome() {
 
                         {isExpanded && (
                           <div className="mt-4">
-                            {/* Tabs */}
                             <div className="flex overflow-x-auto gap-1 bg-secondary rounded-lg p-1 no-scrollbar">
                               {tabs.map(tab => (
                                 <button key={tab.key} data-testid={`tab-${tab.key}-${turf.id}`}
@@ -1006,8 +1265,6 @@ export default function TurfOwnerHome() {
                                 </button>
                               ))}
                             </div>
-
-                            {/* Tab Content */}
                             {activeTab === "slots" && <SlotManagementPanel turf={turf} />}
                             {activeTab === "bookings" && <BookingsPanel turf={turf} />}
                             {activeTab === "analytics" && <AnalyticsPanel turf={turf} />}
@@ -1023,6 +1280,58 @@ export default function TurfOwnerHome() {
                     </div>
                   );
                 })}
+
+                {/* Pending Turfs */}
+                {pendingTurfs.map((turf: any) => (
+                  <div key={turf.id} data-testid={`card-pending-turf-${turf.id}`} className="bg-card border border-yellow-500/30 rounded-xl overflow-hidden opacity-80">
+                    {turf.imageUrl && <img src={turf.imageUrl} alt={turf.name} className="w-full h-28 object-cover" />}
+                    <div className="p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-foreground font-semibold">{turf.name}</h3>
+                        <span className="text-xs bg-yellow-500/20 text-yellow-500 px-2 py-0.5 rounded-full font-medium">Pending Review</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-muted-foreground" />
+                        <p className="text-muted-foreground text-xs">{turf.location}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">This turf is awaiting admin approval before going live.</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Rejected Turfs */}
+                {rejectedTurfs.map((turf: any) => (
+                  <div key={turf.id} data-testid={`card-rejected-turf-${turf.id}`} className="bg-card border border-destructive/30 rounded-xl overflow-hidden opacity-70">
+                    <div className="p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-foreground font-semibold">{turf.name}</h3>
+                        <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full font-medium">Rejected</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-muted-foreground" />
+                        <p className="text-muted-foreground text-xs">{turf.location}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">This turf listing was rejected. Contact admin for more information.</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add Another Turf */}
+                {!showNewTurfForm ? (
+                  <button
+                    data-testid="button-add-another-turf"
+                    onClick={() => setShowNewTurfForm(true)}
+                    className="w-full flex items-center justify-center gap-2 border border-dashed border-border rounded-xl p-4 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Add Another Turf
+                  </button>
+                ) : (
+                  <NewTurfForm
+                    onClose={() => setShowNewTurfForm(false)}
+                    onSuccess={() => setShowNewTurfForm(false)}
+                  />
+                )}
               </div>
             )}
           </div>

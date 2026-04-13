@@ -148,6 +148,7 @@ export default function Admin() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
   const [pendingTurfs, setPendingTurfs] = useState<PendingTurf[]>([]);
+  const [pendingTurfListings, setPendingTurfListings] = useState<any[]>([]);
   const [allOwners, setAllOwners] = useState<AllOwner[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -166,7 +167,7 @@ export default function Admin() {
     if (!quiet) setIsLoading(true);
     else setIsRefreshing(true);
     try {
-      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes] = await Promise.all([
+      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes] = await Promise.all([
         fetch(`/api/admin/stats?adminKey=${encodeURIComponent(key)}`),
         fetch(`/api/admin/owners?adminKey=${encodeURIComponent(key)}`),
         fetch(`/api/admin/pending-turfs?adminKey=${encodeURIComponent(key)}`),
@@ -174,16 +175,18 @@ export default function Admin() {
         fetch(`/api/locations`),
         fetch(`/api/admin/players?adminKey=${encodeURIComponent(key)}`),
         fetch(`/api/admin/bookings?adminKey=${encodeURIComponent(key)}`),
+        fetch(`/api/admin/pending-turf-listings?adminKey=${encodeURIComponent(key)}`),
       ]);
       if (statsRes.status === 403) throw new Error("Invalid admin key");
       if (!statsRes.ok) throw new Error("Failed to load data");
-      const [s, pa, pt, a, l, pl, bk] = await Promise.all([
+      const [s, pa, pt, a, l, pl, bk, ptl] = await Promise.all([
         statsRes.json(), pendingAccRes.json(), pendingTurfRes.json(), allRes.json(),
-        locRes.json(), playersRes.json(), bookingsRes.json()
+        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json()
       ]);
       setStats(s);
       setPendingAccounts(pa);
       setPendingTurfs(pt);
+      setPendingTurfListings(ptl);
       setAllOwners(a);
       setLocations(l);
       setPlayers(pl);
@@ -272,7 +275,24 @@ export default function Admin() {
     }
   };
 
-  const totalPending = (stats?.pendingAccounts ?? 0) + (stats?.pendingTurfs ?? 0);
+  const handleTurfListingAction = async (turfId: string, action: "approve" | "reject") => {
+    setActionPending(turfId + action);
+    try {
+      const res = await fetch(`/api/admin/turfs/${turfId}/${action}?adminKey=${encodeURIComponent(adminKey)}`, { method: "POST" });
+      if (!res.ok) throw new Error("Action failed");
+      await fetchAll(adminKey, true);
+      toast({
+        title: action === "approve" ? "Turf approved" : "Turf rejected",
+        description: action === "approve" ? "The additional turf is now live." : "The turf listing has been rejected.",
+      });
+    } catch {
+      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
+    } finally {
+      setActionPending(null);
+    }
+  };
+
+  const totalPending = (stats?.pendingAccounts ?? 0) + (stats?.pendingTurfs ?? 0) + pendingTurfListings.length;
 
   // ── Player Detail View ─────────────────────────────────────────────────────
   if (selectedPlayer) {
@@ -683,6 +703,50 @@ export default function Admin() {
                   </div>
                 )}
               </div>
+
+              {/* Additional Turf Listings (Multi-Turf) */}
+              {pendingTurfListings.length > 0 && (
+                <div className="mt-6">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    Additional Turf Listings · {pendingTurfListings.length}
+                  </p>
+                  <div className="space-y-3">
+                    {pendingTurfListings.map((turf: any) => (
+                      <div key={turf.id} data-testid={`card-pending-listing-${turf.id}`} className="bg-card border border-border rounded-xl overflow-hidden">
+                        {turf.imageUrl && <img src={turf.imageUrl} alt={turf.name} className="w-full h-24 object-cover" />}
+                        <div className="p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-foreground font-semibold text-sm">{turf.name}</p>
+                            <span className="text-xs bg-blue-500/15 text-blue-400 px-2 py-0.5 rounded-full">Additional</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">by {turf.ownerName}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <MapPin className="w-3 h-3" />{turf.location} · ₹{turf.pricePerHour}/hr
+                          </p>
+                          {turf.address && <p className="text-xs text-muted-foreground">{turf.address}</p>}
+                          <div className="flex gap-2 pt-1">
+                            <Button size="sm" variant="outline"
+                              className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-400"
+                              onClick={() => handleTurfListingAction(turf.id, "reject")}
+                              disabled={actionPending !== null}
+                              data-testid={`button-reject-listing-${turf.id}`}>
+                              {actionPending === turf.id + "reject" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5 mr-1" />}
+                              Reject
+                            </Button>
+                            <Button size="sm" className="flex-1"
+                              onClick={() => handleTurfListingAction(turf.id, "approve")}
+                              disabled={actionPending !== null}
+                              data-testid={`button-approve-listing-${turf.id}`}>
+                              {actionPending === turf.id + "approve" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 mr-1" />}
+                              Approve
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

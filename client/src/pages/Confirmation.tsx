@@ -1,16 +1,122 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Check, Calendar, Clock, MapPin, Download, Home, Copy, QrCode } from "lucide-react";
+import { Check, Calendar, Clock, MapPin, Download, Home, Copy, Loader2, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { TurfTimeLogo } from "@/components/TurfTimeLogo";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import type { Booking } from "@shared/schema";
+
+// ── Inline Review Form ──────────────────────────────────────────────────────
+function ReviewSection({ turfId }: { turfId: string }) {
+  const [rating, setRating] = useState(0);
+  const [hovered, setHovered] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  const handleSubmit = async () => {
+    if (!rating) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/turfs/${turfId}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating, comment: comment.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to submit review");
+      }
+      setSubmitted(true);
+      toast({ title: "Review submitted!", description: "Thanks for sharing your experience." });
+    } catch (err: any) {
+      toast({ title: "Couldn't submit", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <Card className="p-5 animate-slide-up" data-testid="card-review-success">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+            <Check className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-foreground">Review submitted!</p>
+            <p className="text-sm text-muted-foreground">Thanks for your feedback.</p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-5 animate-slide-up space-y-4" data-testid="card-review-form">
+      <div>
+        <h3 className="font-semibold text-foreground">Rate Your Experience</h3>
+        <p className="text-sm text-muted-foreground mt-0.5">Help other players make better choices</p>
+      </div>
+
+      {/* Stars */}
+      <div className="flex gap-2" data-testid="star-rating-row">
+        {[1, 2, 3, 4, 5].map(s => (
+          <button
+            key={s}
+            data-testid={`star-${s}`}
+            onClick={() => setRating(s)}
+            onMouseEnter={() => setHovered(s)}
+            onMouseLeave={() => setHovered(0)}
+            className="transition-transform hover:scale-110"
+          >
+            <Star className={cn(
+              "w-9 h-9 transition-colors",
+              s <= (hovered || rating) ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground"
+            )} />
+          </button>
+        ))}
+      </div>
+      {rating > 0 && (
+        <p className="text-sm text-muted-foreground -mt-1">
+          {["", "Poor", "Fair", "Good", "Very Good", "Excellent"][rating]}
+        </p>
+      )}
+
+      {/* Comment */}
+      <textarea
+        data-testid="review-comment"
+        value={comment}
+        onChange={e => setComment(e.target.value)}
+        placeholder="Share your experience... (optional)"
+        rows={3}
+        className="w-full bg-secondary border border-border rounded-lg p-3 text-sm text-foreground resize-none focus:outline-none focus:border-primary transition-colors"
+      />
+
+      <Button
+        data-testid="button-submit-review"
+        onClick={handleSubmit}
+        disabled={!rating || submitting}
+        className="w-full"
+      >
+        {submitting ? (
+          <><Loader2 className="w-4 h-4 animate-spin mr-2" />Submitting…</>
+        ) : "Submit Review"}
+      </Button>
+    </Card>
+  );
+}
 
 export default function Confirmation() {
   const [, setLocation] = useLocation();
   const [booking, setBooking] = useState<Booking | null>(null);
+  const { user } = useAuth();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -25,21 +131,16 @@ export default function Confirmation() {
   const copyBookingCode = () => {
     if (booking) {
       navigator.clipboard.writeText(booking.bookingCode);
-      toast({
-        title: "Copied!",
-        description: "Booking code copied to clipboard",
-      });
+      toast({ title: "Copied!", description: "Booking code copied to clipboard" });
     }
   };
 
-  if (!booking) {
-    return null;
-  }
+  if (!booking) return null;
 
   return (
     <div className="min-h-screen bg-background pb-8 relative">
       <header className="absolute top-0 left-0 p-4 z-10">
-        <Button 
+        <Button
           variant="ghost"
           onClick={() => setLocation("/")}
           title="Go to Home"
@@ -52,34 +153,15 @@ export default function Confirmation() {
       {/* Success Animation */}
       <div className="flex flex-col items-center justify-center pt-16 pb-8 px-4">
         <div className="relative mb-6">
-          {/* Outer glow ring */}
           <div className="absolute inset-0 w-28 h-28 rounded-full bg-primary/20 animate-success-pulse" />
-          
-          {/* Success circle */}
           <div className="relative w-28 h-28 rounded-full bg-primary flex items-center justify-center animate-circle-expand green-glow">
-            <svg
-              className="w-14 h-14 text-primary-foreground"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                className="animate-draw-check"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={3}
-                d="M5 13l4 4L19 7"
-              />
+            <svg className="w-14 h-14 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path className="animate-draw-check" strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
             </svg>
           </div>
         </div>
-
-        <h1 className="text-2xl font-bold text-foreground text-center animate-fade-in">
-          Booking Confirmed!
-        </h1>
-        <p className="text-muted-foreground text-center mt-2 animate-fade-in">
-          Your turf has been successfully booked
-        </p>
+        <h1 className="text-2xl font-bold text-foreground text-center animate-fade-in">Booking Confirmed!</h1>
+        <p className="text-muted-foreground text-center mt-2 animate-fade-in">Your turf has been successfully booked</p>
       </div>
 
       <main className="px-4 space-y-6" data-testid="section-confirmation">
@@ -90,11 +172,7 @@ export default function Confirmation() {
               <p className="text-sm text-muted-foreground">Booking ID</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-lg font-bold text-primary">{booking.bookingCode}</span>
-                <button
-                  onClick={copyBookingCode}
-                  className="p-1 hover-elevate rounded"
-                  data-testid="button-copy-code"
-                >
+                <button onClick={copyBookingCode} className="p-1 hover-elevate rounded" data-testid="button-copy-code">
                   <Copy className="w-4 h-4 text-muted-foreground" />
                 </button>
               </div>
@@ -123,7 +201,6 @@ export default function Confirmation() {
                   <p className="font-medium text-foreground">{booking.date}</p>
                 </div>
               </div>
-
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
                   <Clock className="w-5 h-5 text-foreground" />
@@ -150,7 +227,6 @@ export default function Confirmation() {
         {/* Payment Summary */}
         <Card className="p-5 animate-slide-up" style={{ animationDelay: "100ms" }} data-testid="card-payment-summary">
           <h3 className="font-semibold text-foreground mb-4">Payment Summary</h3>
-          
           <div className="space-y-3">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Total Amount</span>
@@ -167,37 +243,27 @@ export default function Confirmation() {
           </div>
         </Card>
 
+        {/* Review Section — only show if user is logged in */}
+        {user && (booking as any).turfId && (
+          <div style={{ animationDelay: "150ms" }}>
+            <ReviewSection turfId={(booking as any).turfId} />
+          </div>
+        )}
+
         {/* Actions */}
         <div className="space-y-3 animate-slide-up" style={{ animationDelay: "200ms" }}>
-          <Button 
-            className="w-full green-glow" 
-            size="lg"
-            onClick={() => setLocation("/bookings")}
-            data-testid="button-view-details"
-          >
+          <Button className="w-full green-glow" size="lg" onClick={() => setLocation("/bookings")} data-testid="button-view-details">
             <Calendar className="w-5 h-5 mr-2" />
             View Booking Details
           </Button>
-          
-          <Button 
-            variant="outline" 
-            className="w-full" 
-            size="lg"
-            onClick={() => setLocation("/")}
-            data-testid="button-book-another"
-          >
+          <Button variant="outline" className="w-full" size="lg" onClick={() => setLocation("/")} data-testid="button-book-another">
             <Home className="w-5 h-5 mr-2" />
             Book Another Turf
           </Button>
         </div>
 
-        {/* Download Receipt */}
         <div className="flex justify-center pt-2 animate-fade-in" style={{ animationDelay: "300ms" }}>
-          <Button 
-            variant="ghost" 
-            className="text-primary"
-            data-testid="button-download-receipt"
-          >
+          <Button variant="ghost" className="text-primary" data-testid="button-download-receipt">
             <Download className="w-4 h-4 mr-2" />
             Download Receipt
           </Button>

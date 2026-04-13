@@ -106,10 +106,13 @@ def safe_turf(t: dict) -> dict:
     return {
         "id": t["_id"], "ownerId": t.get("ownerId"), "name": t.get("name"),
         "location": t.get("location"), "address": t.get("address"), "imageUrl": t.get("imageUrl"),
+        "imageUrls": t.get("imageUrls", []),
         "rating": t.get("rating", 5), "amenities": t.get("amenities", []),
         "sportTypes": t.get("sportTypes", []), "pricePerHour": t.get("pricePerHour", 1000),
         "isAvailable": t.get("isAvailable", True), "featured": t.get("featured", False),
         "openHour": t.get("openHour", 6), "closeHour": t.get("closeHour", 23),
+        "pendingStatus": t.get("pendingStatus"),  # None=approved, "pending_review"=waiting, "rejected"
+        "turfLength": t.get("turfLength"), "turfWidth": t.get("turfWidth"),
     }
 
 def safe_slot(s: dict) -> dict:
@@ -243,9 +246,67 @@ class ReviewCreate(BaseModel):
     rating: int
     comment: Optional[str] = None
 
+class AdditionalTurfSubmit(BaseModel):
+    name: str
+    location: str
+    address: str
+    pincode: str
+    imageUrls: List[str]
+    length: int
+    width: int
+    pricePerHour: Optional[int] = 1000
+    sportTypes: Optional[List[str]] = None
+
 class AppFeedbackBody(BaseModel):
     rating: int
     feedback: Optional[str] = None
+
+async def seed_demo_bookings():
+    existing = await bookings_col.count_documents({"_seed": True})
+    if existing > 0:
+        return
+    turf_id = "owner-turf-seed-owner-1"
+    turf = await turfs_col.find_one({"_id": turf_id})
+    if not turf:
+        return
+    base_price = turf.get("pricePerHour", 1000)
+    now = datetime.now(timezone.utc)
+    configs = [
+        (5, 3, 8, 2), (5, 10, 16, 1), (5, 18, 6, 3), (5, 25, 19, 2),
+        (4, 2, 10, 2), (4, 15, 18, 1), (4, 22, 8, 2), (4, 28, 14, 1),
+        (3, 5, 7, 2), (3, 12, 19, 1), (3, 20, 9, 3), (3, 25, 15, 2),
+        (2, 8, 11, 1), (2, 14, 17, 2), (2, 20, 8, 1), (2, 26, 20, 2),
+        (1, 5, 9, 2), (1, 15, 16, 1), (1, 22, 8, 3), (0, 5, 10, 1),
+    ]
+    player_names = ["Rahul Sharma", "Priya Mehta", "Arjun Patel", "Sneha Gupta", "Vikram Singh", "Mohammed Ali", "Ravi Kumar"]
+    player_phones = ["9876543210", "8765432109", "7654321098", "6543210987", "5432109876", "4321098765", "3210987654"]
+    to_insert = []
+    for i, (months_ago, day, hour, dur) in enumerate(configs):
+        ref = now - timedelta(days=months_ago * 30)
+        try:
+            bdt = ref.replace(day=day)
+        except ValueError:
+            bdt = ref.replace(day=28)
+        date_str = bdt.strftime("%Y-%m-%d")
+        pph = base_price if hour < 12 else (round(base_price * 1.2) if hour < 18 else round(base_price * 1.5))
+        total = pph * dur
+        paid = round(total * 0.3)
+        bid = f"seed-bk-{i:03d}"
+        to_insert.append({
+            "_id": bid, "_seed": True, "turfId": turf_id,
+            "turfName": turf.get("name"), "turfAddress": turf.get("address"),
+            "date": date_str, "startTime": f"{hour:02d}:00", "endTime": f"{(hour+dur):02d}:00",
+            "duration": dur * 60, "totalAmount": total, "paidAmount": paid, "balanceAmount": total - paid,
+            "paymentMethod": "online", "status": "confirmed",
+            "bookingCode": f"TT{bid[-3:].upper()}",
+            "userId": "seed-player-shahid", "userName": player_names[i % len(player_names)],
+            "userPhone": player_phones[i % len(player_phones)], "createdAt": bdt,
+        })
+    if to_insert:
+        try:
+            await bookings_col.insert_many(to_insert, ordered=False)
+        except Exception:
+            pass
 
 # ── App Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -287,6 +348,23 @@ async def lifespan(app: FastAPI):
             "email": "shahid@gmail.com", "phoneNumber": "1234567890",
             "password": hashed_p, "dateOfBirth": "2006-06-25", "role": "player",
         })
+    # Seed a second pending turf for testowner (multi-turf demo)
+    await turfs_col.update_one(
+        {"_id": "owner-turf-seed-2"},
+        {"$setOnInsert": {
+            "_id": "owner-turf-seed-2", "ownerId": "seed-owner-1",
+            "name": "Elite Sports Arena", "location": "Koramangala, Bangalore",
+            "address": "456 Sports Nagar, Koramangala, Bangalore 560034",
+            "imageUrl": TURF_IMAGES[1], "imageUrls": [TURF_IMAGES[1]],
+            "rating": 5, "amenities": ["Parking", "WiFi", "Showers"], "sportTypes": ["Cricket"],
+            "pricePerHour": 1500, "isAvailable": False, "featured": False,
+            "openHour": 7, "closeHour": 22, "pendingStatus": "pending_review",
+            "turfLength": 100, "turfWidth": 65, "turfPincode": "560034",
+        }},
+        upsert=True
+    )
+    # Seed demo bookings for analytics
+    await seed_demo_bookings()
     yield
     client.close()
 
@@ -572,6 +650,32 @@ async def cancel_booking(booking_id: str, user=Depends(get_current_user)):
         await slots_col.update_one({"_id": slot_id}, {"$set": {"isBooked": False}})
     updated = await bookings_col.find_one({"_id": booking_id})
     return safe_booking(updated)
+
+# ── Owner: Submit Additional Turf ─────────────────────────────────────────────
+@app.post("/api/owner/turfs")
+async def submit_additional_turf(body: AdditionalTurfSubmit, user=Depends(get_current_user)):
+    if user.get("role") != "turf_owner":
+        raise HTTPException(403, "Not a turf owner")
+    if user.get("ownerStatus") != "account_approved":
+        raise HTTPException(403, "Account must be approved first")
+    if user.get("turfStatus") != "turf_approved":
+        raise HTTPException(403, "Your first turf must be approved before adding more")
+    if not re.match(r'^\d{6}$', body.pincode):
+        raise HTTPException(400, "Pincode must be exactly 6 digits")
+    if not body.imageUrls:
+        raise HTTPException(400, "At least one image is required")
+    turf_id = str(uuid.uuid4())
+    turf = {
+        "_id": turf_id, "ownerId": user["_id"],
+        "name": body.name, "location": body.location, "address": body.address,
+        "imageUrl": body.imageUrls[0], "imageUrls": body.imageUrls,
+        "rating": 5, "amenities": [], "sportTypes": body.sportTypes or ["Cricket"],
+        "pricePerHour": body.pricePerHour or 1000, "isAvailable": False, "featured": False,
+        "openHour": 6, "closeHour": 23, "pendingStatus": "pending_review",
+        "turfLength": body.length, "turfWidth": body.width, "turfPincode": body.pincode,
+    }
+    await turfs_col.insert_one(turf)
+    return safe_turf(turf)
 
 # ── Owner: Update Turf Profile ─────────────────────────────────────────────────
 @app.patch("/api/owner/turf/profile")
@@ -905,6 +1009,37 @@ async def admin_reject_turf(owner_id: str, key=Depends(require_admin)):
     await users_col.update_one({"_id": owner_id}, {"$set": {"turfStatus": "turf_rejected"}})
     updated = await users_col.find_one({"_id": owner_id})
     return safe_user(updated)
+
+# ── Admin: Pending Additional Turf Listings ─────────────────────────────────────
+@app.get("/api/admin/pending-turf-listings")
+async def admin_pending_turf_listings(key=Depends(require_admin)):
+    turfs = await turfs_col.find({"pendingStatus": "pending_review"}).to_list(None)
+    result = []
+    for t in turfs:
+        owner = await users_col.find_one({"_id": t.get("ownerId")}) if t.get("ownerId") else None
+        d = safe_turf(t)
+        d["ownerName"] = (owner.get("fullName") or owner.get("username")) if owner else "Unknown"
+        d["ownerPhone"] = owner.get("phoneNumber") if owner else None
+        result.append(d)
+    return result
+
+@app.post("/api/admin/turfs/{turf_id}/approve")
+async def admin_approve_turf_listing(turf_id: str, key=Depends(require_admin)):
+    turf = await turfs_col.find_one({"_id": turf_id})
+    if not turf:
+        raise HTTPException(404, "Turf not found")
+    await turfs_col.update_one({"_id": turf_id}, {"$unset": {"pendingStatus": ""}, "$set": {"isAvailable": True}})
+    updated = await turfs_col.find_one({"_id": turf_id})
+    return safe_turf(updated)
+
+@app.post("/api/admin/turfs/{turf_id}/reject")
+async def admin_reject_turf_listing(turf_id: str, key=Depends(require_admin)):
+    turf = await turfs_col.find_one({"_id": turf_id})
+    if not turf:
+        raise HTTPException(404, "Turf not found")
+    await turfs_col.update_one({"_id": turf_id}, {"$set": {"pendingStatus": "rejected", "isAvailable": False}})
+    updated = await turfs_col.find_one({"_id": turf_id})
+    return safe_turf(updated)
 
 @app.post("/api/admin/locations")
 async def admin_add_location(request: Request, key=Depends(require_admin)):
