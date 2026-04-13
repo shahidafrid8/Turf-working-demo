@@ -135,6 +135,49 @@ export default function Confirmation() {
     }
   };
 
+  const downloadReceipt = () => {
+    if (!booking) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const isFullyPaid = booking.balanceAmount === 0;
+    
+    w.document.write(`<!DOCTYPE html><html><head>
+      <title>Payment Receipt - ${booking.bookingCode}</title>
+      <style>
+        body { font-family: sans-serif; padding: 40px; color: #111; max-width: 600px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+        .header h1 { margin: 0 0 5px; color: #16a34a; font-size: 24px; }
+        .header p { margin: 0; color: #666; font-size: 14px; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #f5f5f5; padding-bottom: 10px; }
+        .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-top: 20px; padding-top: 15px; border-top: 2px solid #333; }
+        .paid-row { display: flex; justify-content: space-between; color: ${isFullyPaid ? '#16a34a' : '#111'}; margin-top: 10px; }
+        .balance-row { display: flex; justify-content: space-between; font-weight: bold; color: ${isFullyPaid ? '#16a34a' : '#dc2626'}; margin-top: 10px; }
+        .btn { margin-top: 30px; padding: 10px 20px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: block; width: 100%; text-align: center; font-weight: bold; text-decoration: none; }
+        @media print { .btn { display: none; } body { padding: 0; } }
+      </style>
+    </head><body>
+      <div class="header">
+        <h1>TurfTime Receipt</h1>
+        <p>Booking ID: ${booking.bookingCode}</p>
+        <p>Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
+      </div>
+      
+      <div class="row"><span>Turf Name</span><span style="font-weight:600">${booking.turfName}</span></div>
+      <div class="row"><span>Address</span><span style="text-align:right; max-width: 60%">${booking.turfAddress}</span></div>
+      <div class="row"><span>Date & Time</span><span style="font-weight:600">${booking.date} &middot; ${booking.startTime}</span></div>
+      
+      <div class="total-row"><span>Total Amount</span><span>₹${booking.totalAmount}</span></div>
+      <div class="paid-row"><span>${isFullyPaid ? 'Amount Paid' : 'Paid Online'}</span><span>₹${booking.paidAmount}</span></div>
+      <div class="balance-row">
+        <span>${isFullyPaid ? 'Balance Due' : 'Balance Due at Venue'}</span>
+        <span>${isFullyPaid ? '₹0 (Fully Paid)' : `₹${booking.balanceAmount}`}</span>
+      </div>
+      
+      <button class="btn" onclick="window.print()">Print / Save as PDF</button>
+    </body></html>`);
+    w.document.close();
+  };
+
   if (!booking) return null;
 
   return (
@@ -233,13 +276,22 @@ export default function Confirmation() {
               <span className="font-medium text-foreground">₹{booking.totalAmount}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Paid Online</span>
+              <span className="text-muted-foreground">{booking.balanceAmount === 0 ? "Amount Paid" : "Paid Online"}</span>
               <span className="font-medium text-primary">₹{booking.paidAmount}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Balance Due at Venue</span>
-              <span className="font-medium text-foreground">₹{booking.balanceAmount}</span>
-            </div>
+            {booking.balanceAmount > 0 ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Balance Due at Venue</span>
+                <span className="font-medium text-foreground">₹{booking.balanceAmount}</span>
+              </div>
+            ) : (
+              <div className="flex justify-between mt-2 pt-2 border-t border-border">
+                <span className="text-green-500 font-semibold flex items-center gap-1.5">
+                  <Check className="w-4 h-4" /> Fully Paid
+                </span>
+                <span className="font-medium text-green-500">₹0</span>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -263,7 +315,7 @@ export default function Confirmation() {
         </div>
 
         <div className="flex justify-center pt-2 animate-fade-in" style={{ animationDelay: "300ms" }}>
-          <Button variant="ghost" className="text-primary" data-testid="button-download-receipt">
+          <Button variant="ghost" className="text-primary" onClick={downloadReceipt} data-testid="button-download-receipt">
             <Download className="w-4 h-4 mr-2" />
             Download Receipt
           </Button>

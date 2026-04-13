@@ -63,6 +63,7 @@ export interface IStorage {
   getBookingsByTurfId(turfId: string): Promise<Booking[]>;
   getBookingsByUserId(userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
+  markBookingPaid(id: string): Promise<Booking | undefined>;
 
   // App Feedback
   getAppFeedback(userId: string): Promise<AppFeedback | undefined>;
@@ -499,6 +500,16 @@ export class MemStorage implements IStorage {
     const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, ...insertBooking, id, createdAt: new Date() };
     this.bookings.set(bookingEntity.id, bookingEntity);
     return bookingEntity;
+  }
+
+  async markBookingPaid(id: string): Promise<Booking | undefined> {
+    const booking = this.bookings.get(id);
+    if (booking) {
+      booking.paidAmount = booking.totalAmount;
+      booking.balanceAmount = 0;
+      this.bookings.set(id, booking);
+    }
+    return booking;
   }
 
   async getAppFeedback(userId: string): Promise<AppFeedback | undefined> {

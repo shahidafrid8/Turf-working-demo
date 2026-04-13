@@ -617,6 +617,16 @@ function BookingsPanel({ turf }: { turf: Turf }) {
     },
   });
 
+  const payMutation = useMutation({
+    mutationFn: (bookingId: string) => apiRequest("POST", `/api/owner/bookings/${bookingId}/pay`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/analytics", turf.id] });
+      toast({ title: "Payment Recorded", description: "The booking balance has been settled." });
+    },
+    onError: (err: any) => toast({ title: "Cannot mark paid", description: err.message || "Something went wrong.", variant: "destructive" }),
+  });
+
   const cancelMutation = useMutation({
     mutationFn: (bookingId: string) => apiRequest("POST", `/api/owner/bookings/${bookingId}/cancel`),
     onSuccess: () => {
@@ -660,18 +670,31 @@ function BookingsPanel({ turf }: { turf: Turf }) {
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-2">
+      <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-2 pb-2">
         <span>Total: <span className="text-foreground font-semibold">₹{b.totalAmount}</span></span>
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
-      {b.status !== "cancelled" && b.date >= format(today, "yyyy-MM-dd") && (
-        <Button variant="outline" size="sm" data-testid={`button-cancel-${b.id}`}
-          className="w-full text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-          disabled={cancelMutation.isPending}
-          onClick={() => cancelMutation.mutate(b.id)}>
-          {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <XCircle className="w-3.5 h-3.5 mr-1.5" />}
-          Cancel Booking
-        </Button>
+      {b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (
+        <div className="flex gap-2">
+          {b.balanceAmount > 0 && (
+            <Button variant="outline" size="sm" data-testid={`button-pay-${b.id}`}
+              className="flex-1 text-green-600 border-green-600/40 hover:bg-green-600/10 hover:text-green-600"
+              disabled={payMutation.isPending}
+              onClick={() => payMutation.mutate(b.id)}>
+              {payMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <CheckCircle className="w-3.5 h-3.5 mr-1.5" />}
+              Mark Paid
+            </Button>
+          )}
+          {b.date >= format(today, "yyyy-MM-dd") && (
+            <Button variant="outline" size="sm" data-testid={`button-cancel-${b.id}`}
+              className="flex-1 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              disabled={cancelMutation.isPending}
+              onClick={() => cancelMutation.mutate(b.id)}>
+              {cancelMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <XCircle className="w-3.5 h-3.5 mr-1.5" />}
+              Cancel Booking
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Clock, MapPin, ChevronRight } from "lucide-react";
+import { Calendar, Clock, MapPin, ChevronRight, Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,9 +58,18 @@ export default function Bookings() {
       </div>
 
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-        <div>
-          <span className="text-sm text-muted-foreground">Total: </span>
-          <span className="font-semibold text-foreground">₹{booking.totalAmount}</span>
+        <div className="flex flex-col">
+          <div>
+            <span className="text-sm text-muted-foreground">Total: </span>
+            <span className="font-semibold text-foreground">₹{booking.totalAmount}</span>
+          </div>
+          {booking.balanceAmount > 0 ? (
+            <span className="text-xs text-muted-foreground mt-0.5">Due: ₹{booking.balanceAmount}</span>
+          ) : (
+            <span className="text-xs text-green-500 font-medium mt-0.5 flex items-center gap-1">
+              <Check className="w-3 h-3"/> Fully Paid
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 text-primary text-sm font-medium">
           View Details

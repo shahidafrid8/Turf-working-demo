@@ -51,13 +51,18 @@ export default function Booking() {
   const handleProceedToPayment = () => {
     if (!turf || !selectedSlot) return;
     
+    const durationHours = parseInt(duration) / 60;
+    const startHour = parseInt(selectedSlot.startTime.split(':')[0]);
+    const finalEndHour = startHour + durationHours;
+    const finalEndTime = `${finalEndHour.toString().padStart(2, '0')}:00`;
+
     const bookingData = {
       turfId: turf.id,
       turfName: turf.name,
       turfAddress: turf.address,
       date: format(selectedDate, "yyyy-MM-dd"),
       startTime: selectedSlot.startTime,
-      endTime: selectedSlot.endTime,
+      endTime: finalEndTime,
       duration: parseInt(duration),
       totalAmount: totalPrice,
       slotId: selectedSlot.id,

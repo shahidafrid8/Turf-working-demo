@@ -390,6 +390,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(owners.map(o => safeUserResponse(o)));
   });
 
+  // ── Admin: list pending additional turf listings (stub) ───────────────────
+  app.get("/api/admin/pending-turf-listings", async (req: Request, res: Response) => {
+    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    res.json([]);
+  });
+
+  // ── Admin: approve additional turf listing (stub) ─────────────────────────
+  app.post("/api/admin/turfs/:turfId/approve", async (req: Request, res: Response) => {
+    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    res.json({ success: true });
+  });
+
+  // ── Admin: reject additional turf listing (stub) ──────────────────────────
+  app.post("/api/admin/turfs/:turfId/reject", async (req: Request, res: Response) => {
+    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    res.json({ success: true });
+  });
+
   // ── Admin: approve account ────────────────────────────────────────────────
   app.post("/api/admin/owners/:id/approve", async (req: Request, res: Response) => {
     if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
@@ -565,6 +583,98 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
     const bookings = await storage.getBookingsByTurfId(req.params.turfId);
     res.json(bookings.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()));
+  });
+
+  // ── Owner: mark booking as paid ───────────────────────────────────────────
+  app.post("/api/owner/bookings/:id/pay", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const booking = await storage.getBooking(req.params.id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
+    
+    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    if (!turfs.some(t => t.id === booking.turfId)) {
+      return res.status(403).json({ error: "Not your turf" }) as any;
+    }
+    
+    const updated = await storage.markBookingPaid(req.params.id);
+    res.json(updated);
+  });
+
+  // ── Owner: analytics ────────────────────────────────────────────────────────
+  app.get("/api/owner/analytics", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const turfId = req.query.turf_id as string;
+    if (!turfId) return res.status(400).json({ error: "Turf ID required" }) as any;
+    
+    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const owned = turfs.find(t => t.id === turfId);
+    if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
+    
+    const bookings = await storage.getBookingsByTurfId(turfId);
+    
+    let totalRevenue = 0;
+    let totalBookings = 0;
+    let cancelledBookings = 0;
+    const revenueByMonth: Record<string, number> = {};
+    const bookingsByHour: Record<string, number> = {};
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    
+    // Initialize current and previous 2 months with 0
+    const now = new Date();
+    for(let i=2; i>=0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        revenueByMonth[monthNames[d.getMonth()]] = 0;
+    }
+
+    bookings.forEach(b => {
+      if (b.status === "cancelled") {
+        cancelledBookings++;
+        return;
+      }
+      totalBookings++;
+      totalRevenue += b.totalAmount;
+      
+      const monthStr = b.date.split("-")[1];
+      if (monthStr) {
+          const monthIndex = parseInt(monthStr, 10) - 1;
+          const month = monthNames[monthIndex];
+          revenueByMonth[month] = (revenueByMonth[month] || 0) + b.totalAmount;
+      }
+      
+      const hour = b.startTime;
+      bookingsByHour[hour] = (bookingsByHour[hour] || 0) + 1;
+    });
+    
+    const monthlyRevenue = Object.keys(revenueByMonth).map(month => ({ month, revenue: revenueByMonth[month] }));
+    const peakHours = Object.entries(bookingsByHour)
+      .map(([hour, count]) => ({ hour, count }))
+      .sort((a, b) => b.count - a.count);
+      
+    // Dummy occupancy rate out of 100
+    const occupancyRate = totalBookings > 0 ? Math.min(Math.round((totalBookings / 30) * 100), 100) : 0;
+    
+    const recentBookings = bookings
+      .filter(b => b.status !== "cancelled")
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 5)
+      .map(b => ({
+        id: b.id,
+        userName: b.userName,
+        date: b.date,
+        startTime: b.startTime,
+        totalAmount: b.totalAmount
+      }));
+      
+    res.json({
+      totalRevenue,
+      totalBookings,
+      cancelledBookings,
+      occupancyRate,
+      monthlyRevenue,
+      peakHours,
+      recentBookings
+    });
   });
 
   return httpServer;
