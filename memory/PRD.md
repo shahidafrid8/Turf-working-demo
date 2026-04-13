@@ -29,41 +29,19 @@ Enhance the Turf Owner section of the QuickTurf app (cloned from https://github.
 - MongoDB replacing in-memory MemStorage
 - Vite dev server (port 3000) separated from API server
 
-### 6 New Turf Owner Enhancements
-1. **Analytics Dashboard** (Analytics tab)
-   - KPI cards: Total Revenue, Total Bookings, Cancelled, Occupancy Rate
-   - Monthly Revenue bar chart (Recharts, last 6 months)
-   - Peak Booking Hours horizontal bar chart
-   - Recent Bookings list
-   - API: GET /api/owner/analytics?turf_id=...
+### 6 New Turf Owner Enhancements (Phase 1)
+1. **Analytics Dashboard** (Analytics tab) - KPI cards + Monthly Revenue bar chart + Peak hours + Recent bookings
+2. **Pricing Management** (Edit Turf tab) - Edit price per hour, auto-regenerates future slots
+3. **Turf Profile Edit** (Edit Turf tab) - Name, address, amenities, up to 5 images
+4. **Booking Cancellation** (Bookings tab) - Cancel upcoming bookings, frees time slots
+5. **Operating Hours Setup** (Edit Turf tab) - Open/close hour dropdowns, live slot preview
+6. **Customer Reviews** (Reviews tab) - Star summary, review cards, empty state
 
-2. **Pricing Management** (Edit Turf tab)
-   - Edit price per hour (₹) via form
-   - Auto-deletes future unbooked slots when price changes to force regeneration
-   - API: PATCH /api/owner/turf/profile
-
-3. **Turf Profile Edit** (Edit Turf tab)
-   - Edit: turf name, address, price, amenities (toggle chips), images (up to 5)
-   - Syncs user record when name/address changes
-
-4. **Booking Cancellation** (Bookings tab)
-   - Cancel upcoming bookings with Cancel button
-   - Unblocks time slots on cancellation
-   - Shows cancelled status badge
-   - API: POST /api/owner/bookings/{id}/cancel
-
-5. **Operating Hours Setup** (Edit Turf tab)
-   - Open hour / Close hour dropdowns (4:00 - 22:00 range)
-   - Live preview of generated slot times
-   - Deletes future slots on change to force regeneration with new hours
-   - API: PATCH /api/owner/turf/profile {openHour, closeHour}
-
-6. **Customer Reviews** (Reviews tab)
-   - Star rating summary with per-star breakdown
-   - Review cards with user name, rating, comment, date
-   - Empty state with helpful message
-   - API: GET /api/owner/turfs/{id}/reviews
-   - Players can submit via POST /api/turfs/{id}/reviews
+### Phase 2 Features
+7. **Seed Demo Bookings** - 20 bookings seeded (₹59,100 revenue, Nov-Apr history)
+8. **Player Review Submission from Confirmation** - Star rating + comment after booking
+9. **Multiple Turfs Per Owner** - "Add Another Turf" form, pending/rejected badges, admin can approve/reject
+10. **Export Bookings as CSV/PDF** - CSV download with player details, Print/PDF window
 
 ### Backend Endpoints
 All existing routes ported from TypeScript + new routes:
