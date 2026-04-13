@@ -1,9 +1,9 @@
-import os, re, uuid, math
+import os, re, uuid, math, json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Response, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, Response, UploadFile, File, Query, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,6 +15,7 @@ import bcrypt
 import jwt
 import shutil
 import pathlib
+import asyncio
 
 load_dotenv()
 
@@ -24,6 +25,9 @@ JWT_SECRET = os.environ.get("SESSION_SECRET", "turftime-dev-secret")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "turftime-admin")
 UPLOADS_DIR = pathlib.Path("/app/uploads")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_PEM = os.environ.get("VAPID_PRIVATE_PEM", "").replace("\\n", "\n")
+VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "mailto:admin@quickturf.app")
 
 # ── MongoDB ────────────────────────────────────────────────────────────────────
 client = AsyncIOMotorClient(MONGO_URL)
