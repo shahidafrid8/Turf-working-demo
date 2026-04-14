@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { TimeSlot } from "@shared/schema";
+import { format } from "date-fns";
 
 interface TimeSlotGridProps {
   slots: TimeSlot[];
@@ -17,8 +18,17 @@ export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot, duration }: 
   const selectedStartHour = selectedSlot ? parseInt(selectedSlot.startTime.split(':')[0]) : null;
   const durationHours = duration / 60;
 
+  const currentDateStr = format(new Date(), "yyyy-MM-dd");
+  const currentHour = new Date().getHours();
+
   const renderSlots = (periodSlots: TimeSlot[], period: string) => {
-    if (periodSlots.length === 0) return null;
+    // Filter out past slots completely
+    const visibleSlots = periodSlots.filter(slot => {
+      const slotHour = parseInt(slot.startTime.split(':')[0]);
+      return !(slot.date === currentDateStr && slotHour <= currentHour);
+    });
+
+    if (visibleSlots.length === 0) return null;
 
     const periodConfig = {
       morning: {
@@ -53,7 +63,7 @@ export function TimeSlotGrid({ slots, selectedSlotId, onSelectSlot, duration }: 
         </div>
         
         <div className="grid grid-cols-3 gap-2">
-          {periodSlots.map((slot) => {
+          {visibleSlots.map((slot) => {
             const slotHour = parseInt(slot.startTime.split(':')[0]);
             let isSelected = false;
             if (selectedStartHour !== null) {

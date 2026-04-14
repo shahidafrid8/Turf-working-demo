@@ -480,6 +480,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(updated);
   });
 
+  // ── Owner: update slot price ──────────────────────────────────────────────
+  app.post("/api/owner/slots/:slotId/price", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const { price, applyToAllDays } = req.body;
+    if (typeof price !== "number" || price <= 0) return res.status(400).json({ error: "Valid price is required" }) as any;
+
+    const slot = await storage.getTimeSlot(req.params.slotId);
+    if (!slot) return res.status(404).json({ error: "Slot not found" }) as any;
+    
+    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    if (!turfs.find(t => t.id === slot.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
+    
+    if (applyToAllDays) {
+      await storage.updateTimeSlotPriceByStartTime(slot.turfId, slot.startTime, price);
+      const updated = await storage.getTimeSlot(req.params.slotId);
+      res.json(updated);
+    } else {
+      if (slot.isBooked) return res.status(400).json({ error: "Cannot change price of a booked slot" }) as any;
+      const updated = await storage.updateTimeSlotPrice(req.params.slotId, price);
+      res.json(updated);
+    }
+  });
+
   // ── Turf routes ───────────────────────────────────────────────────────────
   app.get("/api/turfs", async (req, res) => {
     try { res.json(await storage.getTurfs()); } catch { res.status(500).json({ error: "Failed to fetch turfs" }); }

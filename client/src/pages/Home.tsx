@@ -14,7 +14,8 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Turf } from "@shared/schema";
+import type { Turf, Booking } from "@shared/schema";
+import { formatDistanceToNow, format } from "date-fns";
 
 const sportFilters = ["All", "Cricket", "Football", "Basketball", "Tennis", "Badminton"];
 
@@ -36,6 +37,71 @@ export default function Home() {
   const { data: turfs, isLoading } = useQuery<Turf[]>({
     queryKey: ["/api/turfs"],
   });
+
+  const { data: myBookings } = useQuery<Booking[]>({
+    queryKey: ["/api/auth/my-bookings"],
+    enabled: !!user && user.role === "player",
+  });
+
+  const notifications = useMemo(() => {
+    const list: any[] = [];
+    if (myBookings && turfs) {
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      
+      const activeBookings = [...myBookings]
+        .filter(b => b.status === "confirmed")
+        .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
+        .reverse();
+
+      activeBookings.forEach((b) => {
+        const turf = turfs.find(t => t.id === b.turfId);
+        const turfName = turf ? turf.name : "the turf";
+        const createdDate = b.createdAt ? new Date(b.createdAt as any) : new Date();
+        
+        try {
+          const timeAgo = formatDistanceToNow(createdDate, { addSuffix: true });
+          
+          if (b.date === todayStr) {
+            list.push({
+              id: `rem-${b.id}`,
+              icon: <Clock className="w-5 h-5 text-amber-500" />,
+              iconBg: "bg-amber-500/10",
+              title: "Upcoming Match Reminder",
+              desc: `You have a booking at ${turfName} today at ${b.startTime}. Don't forget!`,
+              time: "Today",
+              unread: true
+            });
+          }
+          
+          list.push({
+            id: `conf-${b.id}`,
+            icon: <CalendarCheck className="w-5 h-5 text-emerald-500" />,
+            iconBg: "bg-emerald-500/10",
+            title: "Booking Confirmed!",
+            desc: `Your slot at ${turfName} is confirmed for ${b.date}, ${b.startTime}.`,
+            time: timeAgo,
+            unread: false
+          });
+        } catch (e) {
+          // ignore
+        }
+      });
+    }
+
+    list.push({
+      id: "welcome-1",
+      icon: <Info className="w-5 h-5 text-muted-foreground" />,
+      iconBg: "bg-secondary",
+      title: "Welcome to Quick Turf!",
+      desc: "Browse turfs, pick your slot, and book in seconds. Enjoy your game!",
+      time: "1 week ago",
+      unread: false
+    });
+
+    return list;
+  }, [myBookings, turfs]);
+
+  const unreadCount = notifications.filter(n => n.unread).length;
 
   // Extract unique cities and areas for filter
   const { cities, areasByCity } = useMemo(() => {
@@ -165,7 +231,7 @@ export default function Home() {
               onClick={() => setNotificationsOpen(true)}
             >
               <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
+              {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />}
             </Button>
             
             <Link href="/profile">
@@ -486,44 +552,17 @@ export default function Home() {
           </div>
           <div className="overflow-y-auto max-h-[calc(100vh-120px)]">
             <div className="divide-y divide-border">
-              {/* Notification items */}
-              <NotificationItem
-                icon={<CalendarCheck className="w-5 h-5 text-emerald-500" />}
-                iconBg="bg-emerald-500/10"
-                title="Booking Confirmed!"
-                desc="Your slot at Green Valley Cricket Ground is confirmed for tomorrow, 6:00 PM."
-                time="Just now"
-                unread
-              />
-              <NotificationItem
-                icon={<Clock className="w-5 h-5 text-amber-500" />}
-                iconBg="bg-amber-500/10"
-                title="Upcoming Match Reminder"
-                desc="You have a booking at Champions Cricket Ground today at 7:00 PM. Don't forget!"
-                time="2 hours ago"
-                unread
-              />
-              <NotificationItem
-                icon={<Sparkles className="w-5 h-5 text-primary" />}
-                iconBg="bg-primary/10"
-                title="New Turf Nearby"
-                desc="Elite Cricket Hub just opened in Whitefield. Check it out!"
-                time="Yesterday"
-              />
-              <NotificationItem
-                icon={<IndianRupee className="w-5 h-5 text-blue-500" />}
-                iconBg="bg-blue-500/10"
-                title="Weekend Offer 🎉"
-                desc="Get 20% off on all bookings this Saturday. Use code WEEKEND20."
-                time="2 days ago"
-              />
-              <NotificationItem
-                icon={<Info className="w-5 h-5 text-muted-foreground" />}
-                iconBg="bg-secondary"
-                title="Welcome to Quick Turf!"
-                desc="Browse turfs, pick your slot, and book in seconds. Enjoy your game!"
-                time="1 week ago"
-              />
+              {notifications.map((n) => (
+                <NotificationItem
+                  key={n.id}
+                  icon={n.icon}
+                  iconBg={n.iconBg}
+                  title={n.title}
+                  desc={n.desc}
+                  time={n.time}
+                  unread={n.unread}
+                />
+              ))}
             </div>
           </div>
         </SheetContent>

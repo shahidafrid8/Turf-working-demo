@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { TurfTimeLogo } from "@/components/TurfTimeLogo";
+import logoImg from "@assets/image_1774343851801.png";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
@@ -144,22 +145,34 @@ export default function Confirmation() {
     w.document.write(`<!DOCTYPE html><html><head>
       <title>Payment Receipt - ${booking.bookingCode}</title>
       <style>
-        body { font-family: sans-serif; padding: 40px; color: #111; max-width: 600px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
-        .header h1 { margin: 0 0 5px; color: #16a34a; font-size: 24px; }
-        .header p { margin: 0; color: #666; font-size: 14px; }
-        .row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #f5f5f5; padding-bottom: 10px; }
-        .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-top: 20px; padding-top: 15px; border-top: 2px solid #333; }
-        .paid-row { display: flex; justify-content: space-between; color: ${isFullyPaid ? '#16a34a' : '#111'}; margin-top: 10px; }
-        .balance-row { display: flex; justify-content: space-between; font-weight: bold; color: ${isFullyPaid ? '#16a34a' : '#dc2626'}; margin-top: 10px; }
-        .btn { margin-top: 30px; padding: 10px 20px; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: block; width: 100%; text-align: center; font-weight: bold; text-decoration: none; }
-        @media print { .btn { display: none; } body { padding: 0; } }
+        body { font-family: sans-serif; padding: 40px; color: #e2e8f0; border-radius: 8px; background-color: #0f172a; max-width: 600px; margin: 20px auto; }
+        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #334155; padding-bottom: 20px; }
+        .header img { height: 48px; margin-bottom: 10px; }
+        .header p { margin: 0; color: #94a3b8; font-size: 14px; margin-bottom: 4px; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #1e293b; padding-bottom: 10px; }
+        .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-top: 20px; padding-top: 15px; border-top: 2px solid #475569; }
+        .paid-row { display: flex; justify-content: space-between; color: ${isFullyPaid ? '#22c55e' : '#e2e8f0'}; margin-top: 10px; }
+        .balance-row { display: flex; justify-content: space-between; font-weight: bold; color: ${isFullyPaid ? '#22c55e' : '#ef4444'}; margin-top: 10px; }
+        .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #1e293b; color: #64748b; font-size: 12px; }
+        .btn { margin-top: 30px; padding: 12px 20px; background: #22c55e; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; display: block; width: 100%; text-align: center; font-weight: bold; text-decoration: none; transition: background 0.2s; }
+        .btn:hover { background: #16a34a; }
+        @media print { 
+          .btn { display: none; } 
+          body { padding: 0; background-color: #ffffff; color: #111111; margin: 0; max-width: 100%; } 
+          .header { border-bottom: 2px solid #eeeeee; }
+          .header p { color: #555555; }
+          .row { border-bottom: 1px solid #eeeeee; color: #333333; }
+          .total-row { border-top: 2px solid #333333; color: #111111; }
+          .paid-row { color: ${isFullyPaid ? '#16a34a' : '#333333'}; }
+          .footer { border-top: 1px solid #eeeeee; color: #888888; }
+          strong { color: #111111 !important; }
+        }
       </style>
     </head><body>
       <div class="header">
-        <h1>TurfTime Receipt</h1>
-        <p>Booking ID: ${booking.bookingCode}</p>
-        <p>Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
+        <img src="${window.location.origin}${logoImg}" alt="QuickTurf" />
+        <p>Receipt for Booking ID: <strong style="color: #f8fafc">${booking.bookingCode}</strong></p>
+        <p>Issued on: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}</p>
       </div>
       
       <div class="row"><span>Turf Name</span><span style="font-weight:600">${booking.turfName}</span></div>
@@ -174,6 +187,10 @@ export default function Confirmation() {
       </div>
       
       <button class="btn" onclick="window.print()">Print / Save as PDF</button>
+
+      <div class="footer">
+        <p>Powered by <strong>Solvify Technologies Pvt. Ltd.</strong></p>
+      </div>
     </body></html>`);
     w.document.close();
   };

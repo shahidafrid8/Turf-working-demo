@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -432,6 +433,10 @@ function ReviewsPanel({ turf }: { turf: Turf }) {
 // ── Slot Management Panel ──────────────────────────────────────────────────────
 function SlotManagementPanel({ turf }: { turf: Turf }) {
   const [selectedDate, setSelectedDate] = useState(format(today, "yyyy-MM-dd"));
+  const [editingSlot, setEditingSlot] = useState<TimeSlot | null>(null);
+  const [editPriceValue, setEditPriceValue] = useState("");
+  const [applyToAllDays, setApplyToAllDays] = useState(false);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -455,6 +460,23 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] }),
     onError: (err: any) => toast({ title: "Cannot unblock slot", description: err.message || "Something went wrong.", variant: "destructive" }),
   });
+
+  const priceMutation = useMutation({
+    mutationFn: (data: { id: string, price: number, applyToAll: boolean }) => apiRequest("POST", `/api/owner/slots/${data.id}/price`, { price: data.price, applyToAllDays: data.applyToAll }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "slots", selectedDate] });
+      setEditingSlot(null);
+      toast({ title: "Price updated", description: "The slot price has been updated." });
+    },
+    onError: (err: any) => toast({ title: "Cannot update price", description: err.message || "Something went wrong.", variant: "destructive" }),
+  });
+
+  const handleEditClick = (e: React.MouseEvent, slot: TimeSlot) => {
+    e.stopPropagation();
+    setEditingSlot(slot);
+    setEditPriceValue(String(slot.price));
+    setApplyToAllDays(false);
+  };
 
   const handleSlotToggle = (slot: TimeSlot) => {
     if (slot.isBooked) return;
@@ -482,12 +504,12 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
           const isBlocked = slot.isBlocked;
           const isAvailable = !isBooked && !isBlocked;
           return (
-            <button key={slot.id} data-testid={`owner-slot-${slot.id}`}
-              disabled={isBooked || isPending} onClick={() => handleSlotToggle(slot)}
-              className={cn("relative rounded-lg p-3 text-center transition-all duration-150",
-                isBooked && "bg-secondary opacity-50 cursor-not-allowed",
-                isBlocked && "bg-destructive/15 border border-destructive/40 cursor-pointer hover:bg-destructive/25",
-                isAvailable && "bg-primary/10 border border-primary/30 cursor-pointer hover:bg-primary/20",
+            <div key={slot.id} data-testid={`owner-slot-${slot.id}`}
+              onClick={() => { if (!isBooked && !isPending) handleSlotToggle(slot); }}
+              className={cn("group relative rounded-lg p-3 text-center transition-all duration-150",
+                isBooked ? "bg-secondary opacity-50 cursor-not-allowed" : "cursor-pointer",
+                isBlocked && "bg-destructive/15 border border-destructive/40 hover:bg-destructive/25",
+                isAvailable && "bg-primary/10 border border-primary/30 hover:bg-primary/20",
               )}>
               <p className={cn("text-xs font-semibold", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary")}>
                 {slot.startTime}
@@ -498,7 +520,17 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
               <p className={cn("text-[10px] mt-1 font-medium", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary/70")}>
                 {isBooked ? "Booked" : isBlocked ? "Blocked" : "Open"}
               </p>
-            </button>
+              {!isBooked && (
+                <button
+                  type="button"
+                  data-testid={`btn-edit-price-${slot.id}`}
+                  onClick={(e) => handleEditClick(e, slot)}
+                  className="absolute top-1.5 right-1.5 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background border border-border/50 text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -542,6 +574,56 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
           {eveningSlots.length > 0 && renderPeriod("Evening", "6:00 PM – 11:00 PM", eveningSlots)}
         </div>
       )}
+
+      {/* Price Edit Dialog */}
+      <Dialog open={!!editingSlot} onOpenChange={(open) => !open && setEditingSlot(null)}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Edit Slot Price</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {applyToAllDays 
+                ? <>Set the price for <strong>every {editingSlot?.startTime}</strong> slot going forward.</> 
+                : <>Set the price for the <strong className="text-foreground">{editingSlot?.startTime}</strong> slot on {format(new Date(selectedDate), "dd MMM")}.</>}
+            </p>
+            <div className="relative">
+              <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="number"
+                value={editPriceValue}
+                onChange={(e) => setEditPriceValue(e.target.value)}
+                placeholder="Enter new price"
+                className="pl-9"
+              />
+            </div>
+            
+            <label className="flex items-start gap-2.5 mt-2 cursor-pointer group">
+              <div className="mt-0.5">
+                <input 
+                  type="checkbox" 
+                  checked={applyToAllDays}
+                  onChange={(e) => setApplyToAllDays(e.target.checked)}
+                  className="w-4 h-4 rounded border-border text-primary cursor-pointer focus:ring-primary accent-primary" 
+                />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">Apply to all days</p>
+                <p className="text-xs text-muted-foreground">Change the price of the {editingSlot?.startTime} slot for every date.</p>
+              </div>
+            </label>
+            
+          </div>
+          <Button 
+            className="w-full" 
+            disabled={priceMutation.isPending || !editPriceValue}
+            onClick={() => editingSlot && priceMutation.mutate({ id: editingSlot.id, price: parseInt(editPriceValue), applyToAll: applyToAllDays })}
+          >
+            {priceMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Save Price
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

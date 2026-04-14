@@ -43,10 +43,23 @@ export default function Booking() {
   });
 
   const totalPrice = useMemo(() => {
-    if (!selectedSlot) return 0;
+    if (!selectedSlot || !slots) return 0;
     const durationHours = parseInt(duration) / 60;
-    return selectedSlot.price * durationHours;
-  }, [selectedSlot, duration]);
+    const startHour = parseInt(selectedSlot.startTime.split(':')[0]);
+    
+    let sum = 0;
+    for (let i = 0; i < durationHours; i++) {
+        const requiredHour = startHour + i;
+        const requiredHourStr = `${requiredHour.toString().padStart(2, '0')}:00`;
+        const slotAtHour = slots.find(s => s.startTime === requiredHourStr);
+        if (slotAtHour) {
+            sum += slotAtHour.price;
+        } else {
+            sum += selectedSlot.price;
+        }
+    }
+    return sum;
+  }, [selectedSlot, duration, slots]);
 
   const handleProceedToPayment = () => {
     if (!turf || !selectedSlot) return;
@@ -96,6 +109,30 @@ export default function Booking() {
           variant: "destructive",
         });
         setSelectedSlot(null);
+      }
+    }
+  };
+
+  const handleShare = async () => {
+    if (!turf) return;
+    const url = window.location.href;
+    const shareData = {
+      title: turf.name,
+      text: `Check out ${turf.name} on QuickTurf!`,
+      url: url,
+    };
+
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast({ title: "Link Copied!", description: "Turf link copied to clipboard." });
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+         await navigator.clipboard.writeText(url);
+         toast({ title: "Link Copied!", description: "Turf link copied to clipboard." });
       }
     }
   };
@@ -181,6 +218,7 @@ export default function Booking() {
             variant="secondary"
             className="bg-black/40 backdrop-blur-sm border-none"
             data-testid="button-share"
+            onClick={handleShare}
           >
             <Share2 className="w-5 h-5 text-white" />
           </Button>

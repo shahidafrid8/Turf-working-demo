@@ -56,6 +56,8 @@ export interface IStorage {
   bookTimeSlot(id: string): Promise<TimeSlot | undefined>;
   blockTimeSlot(id: string): Promise<TimeSlot | undefined>;
   unblockTimeSlot(id: string): Promise<TimeSlot | undefined>;
+  updateTimeSlotPrice(id: string, price: number): Promise<TimeSlot | undefined>;
+  updateTimeSlotPriceByStartTime(turfId: string, startTime: string, price: number): Promise<void>;
 
   // Bookings
   getBookings(): Promise<Booking[]>;
@@ -167,7 +169,7 @@ export class MemStorage implements IStorage {
       fullName: "Shamanth",
       email: "shamanth@gmail.com",
       phoneNumber: "0987654322",
-      password: bcrypt.hashSync("shamath123", 10),
+      password: bcrypt.hashSync("shamanth123", 10),
       dateOfBirth: "2000-01-01",
       role: "player",
       ownerStatus: null,
@@ -477,6 +479,21 @@ export class MemStorage implements IStorage {
     const slot = this.timeSlots.get(id);
     if (slot) { slot.isBlocked = false; this.timeSlots.set(id, slot); }
     return slot;
+  }
+
+  async updateTimeSlotPrice(id: string, price: number): Promise<TimeSlot | undefined> {
+    const slot = this.timeSlots.get(id);
+    if (slot) { slot.price = price; this.timeSlots.set(id, slot); }
+    return slot;
+  }
+
+  async updateTimeSlotPriceByStartTime(turfId: string, startTime: string, price: number): Promise<void> {
+    for (const [id, slot] of this.timeSlots.entries()) {
+      if (slot.turfId === turfId && slot.startTime === startTime) {
+        slot.price = price;
+        this.timeSlots.set(id, slot);
+      }
+    }
   }
 
   async getBookings(): Promise<Booking[]> {
