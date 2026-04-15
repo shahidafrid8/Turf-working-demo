@@ -12,6 +12,7 @@ import { TimeSlotGrid } from "@/components/TimeSlotGrid";
 import { startOfToday, format } from "date-fns";
 import type { Turf, TimeSlot } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useSEO } from "@/lib/seo";
 
 const amenityIcons: Record<string, typeof Wifi> = {
   "Parking": Car,
@@ -32,6 +33,12 @@ export default function Booking() {
 
   const { data: turf, isLoading: turfLoading } = useQuery<Turf>({
     queryKey: [`/api/turfs/${id}`],
+  });
+
+  useSEO({
+    title: turf ? `Book ${turf.name}` : "Book a Turf",
+    description: turf ? `Book sports slots at ${turf.name} located in ${turf.location}. Check real-time availability.` : "Book your slots on Quick Turf.",
+    image: turf?.imageUrl || undefined
   });
 
   const dateStr = format(selectedDate, "yyyy-MM-dd");

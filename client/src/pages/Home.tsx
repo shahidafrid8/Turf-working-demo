@@ -16,10 +16,16 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import type { Turf, Booking } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
+import { useSEO } from "@/lib/seo";
 
 const sportFilters = ["All", "Cricket", "Football", "Basketball", "Tennis", "Badminton"];
 
 export default function Home() {
+  useSEO({
+    title: "Find & Book Sports Turfs Near You",
+    description: "Book Box Cricket, Football, and multi-sports turfs instantly. Real-time availability, flexible pricing, and instant confirmation.",
+  });
+
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState("All");

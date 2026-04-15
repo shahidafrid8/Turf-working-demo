@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useSEO } from "@/lib/seo";
 
 interface Player {
   id: string;
@@ -17,6 +18,8 @@ interface Player {
   email: string;
   phoneNumber: string;
   dateOfBirth: string | null;
+  isBanned?: boolean;
+  banReason?: string | null;
 }
 
 interface PendingAccount {
@@ -89,7 +92,7 @@ interface Booking {
   createdAt: string;
 }
 
-type Tab = "overview" | "pending" | "owners" | "locations" | "players" | "bookings";
+type Tab = "overview" | "requests" | "locations" | "owners" | "players" | "bookings" | "payouts" | "search";
 
 function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   if (!value) return null;
@@ -136,6 +139,7 @@ function formatDob(dob: string | null) {
 }
 
 export default function Admin() {
+  useSEO({ title: "Admin Portal | Quick Turf", description: "Admin Dashboard" });
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [adminKey, setAdminKey] = useState("");
@@ -158,30 +162,47 @@ export default function Admin() {
   const [removingLocation, setRemovingLocation] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
 
+  // New states for Payouts and Search
+  const [payouts, setPayouts] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ users: any[], bookings: any[] }>({ users: [], bookings: [] });
+  const [isSearching, setIsSearching] = useState(false);
+
   // Detail view state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [selectedOwner, setSelectedOwner] = useState<AllOwner | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
+  // Helper: all admin API calls send key via header, not query param
+  const adminFetch = (url: string, key: string, options?: RequestInit) =>
+    fetch(url, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        "x-admin-key": key,
+      },
+    });
+
   const fetchAll = async (key: string, quiet = false) => {
     if (!quiet) setIsLoading(true);
     else setIsRefreshing(true);
     try {
-      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes] = await Promise.all([
-        fetch(`/api/admin/stats?adminKey=${encodeURIComponent(key)}`),
-        fetch(`/api/admin/owners?adminKey=${encodeURIComponent(key)}`),
-        fetch(`/api/admin/pending-turfs?adminKey=${encodeURIComponent(key)}`),
-        fetch(`/api/admin/all-owners?adminKey=${encodeURIComponent(key)}`),
+      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes, payoutsRes] = await Promise.all([
+        adminFetch(`/api/admin/stats`, key),
+        adminFetch(`/api/admin/owners`, key),
+        adminFetch(`/api/admin/pending-turfs`, key),
+        adminFetch(`/api/admin/all-owners`, key),
         fetch(`/api/locations`),
-        fetch(`/api/admin/players?adminKey=${encodeURIComponent(key)}`),
-        fetch(`/api/admin/bookings?adminKey=${encodeURIComponent(key)}`),
-        fetch(`/api/admin/pending-turf-listings?adminKey=${encodeURIComponent(key)}`),
+        adminFetch(`/api/admin/players`, key),
+        adminFetch(`/api/admin/bookings`, key),
+        adminFetch(`/api/admin/pending-turf-listings`, key),
+        adminFetch(`/api/admin/payouts`, key),
       ]);
       if (statsRes.status === 403) throw new Error("Invalid admin key");
       if (!statsRes.ok) throw new Error("Failed to load data");
-      const [s, pa, pt, a, l, pl, bk, ptl] = await Promise.all([
+      const [s, pa, pt, a, l, pl, bk, ptl, pay] = await Promise.all([
         statsRes.json(), pendingAccRes.json(), pendingTurfRes.json(), allRes.json(),
-        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json()
+        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json(), payoutsRes.json()
       ]);
       setStats(s);
       setPendingAccounts(pa);
@@ -191,6 +212,7 @@ export default function Admin() {
       setLocations(l);
       setPlayers(pl);
       setBookings(bk);
+      setPayouts(pay);
       setIsUnlocked(true);
     } catch (err: any) {
       toast({ title: "Access denied", description: err.message, variant: "destructive" });
@@ -205,7 +227,7 @@ export default function Admin() {
     if (!newLocation.trim()) return;
     setIsAddingLocation(true);
     try {
-      const res = await fetch(`/api/admin/locations?adminKey=${encodeURIComponent(adminKey)}`, {
+      const res = await adminFetch(`/api/admin/locations`, adminKey, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newLocation.trim() }),
@@ -224,7 +246,7 @@ export default function Admin() {
   const handleRemoveLocation = async (name: string) => {
     setRemovingLocation(name);
     try {
-      const res = await fetch(`/api/admin/locations/${encodeURIComponent(name)}?adminKey=${encodeURIComponent(adminKey)}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/locations/${encodeURIComponent(name)}`, adminKey, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to remove");
       setLocations(await res.json());
       toast({ title: "Location removed" });
@@ -244,7 +266,7 @@ export default function Admin() {
   const handleAccountAction = async (id: string, action: "approve" | "reject") => {
     setActionPending(id + action);
     try {
-      const res = await fetch(`/api/admin/owners/${id}/${action}?adminKey=${encodeURIComponent(adminKey)}`, { method: "POST" });
+      const res = await adminFetch(`/api/admin/owners/${id}/${action}`, adminKey, { method: "POST" });
       if (!res.ok) throw new Error("Action failed");
       await fetchAll(adminKey, true);
       toast({
@@ -261,7 +283,7 @@ export default function Admin() {
   const handleTurfAction = async (id: string, action: "approve-turf" | "reject-turf") => {
     setActionPending(id + action);
     try {
-      const res = await fetch(`/api/admin/owners/${id}/${action}?adminKey=${encodeURIComponent(adminKey)}`, { method: "POST" });
+      const res = await adminFetch(`/api/admin/owners/${id}/${action}`, adminKey, { method: "POST" });
       if (!res.ok) throw new Error("Action failed");
       await fetchAll(adminKey, true);
       toast({
@@ -278,7 +300,7 @@ export default function Admin() {
   const handleTurfListingAction = async (turfId: string, action: "approve" | "reject") => {
     setActionPending(turfId + action);
     try {
-      const res = await fetch(`/api/admin/turfs/${turfId}/${action}?adminKey=${encodeURIComponent(adminKey)}`, { method: "POST" });
+      const res = await adminFetch(`/api/admin/turfs/${turfId}/${action}`, adminKey, { method: "POST" });
       if (!res.ok) throw new Error("Action failed");
       await fetchAll(adminKey, true);
       toast({
@@ -289,6 +311,47 @@ export default function Admin() {
       toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     } finally {
       setActionPending(null);
+    }
+  };
+
+  const handleGlobalSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim().length < 2) {
+      toast({ title: "Query too short", description: "Search query must be at least 2 characters.", variant: "destructive" });
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const res = await adminFetch(`/api/admin/search?q=${encodeURIComponent(searchQuery)}`, adminKey);
+      if (!res.ok) throw new Error("Search failed");
+      setSearchResults(await res.json());
+    } catch {
+      toast({ title: "Error", description: "Failed to perform global search.", variant: "destructive" });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleBanToggle = async (userId: string, isBanned: boolean) => {
+    try {
+      if (!isBanned) {
+        const reason = window.prompt("Enter reason for suspension:");
+        if (!reason) return;
+        const res = await adminFetch(`/api/admin/users/${userId}/ban`, adminKey, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason })
+        });
+        if (!res.ok) throw new Error("Failed to ban user");
+        toast({ title: "User banned", description: "The account has been suspended." });
+      } else {
+        const res = await adminFetch(`/api/admin/users/${userId}/unban`, adminKey, { method: "POST" });
+        if (!res.ok) throw new Error("Failed to unban user");
+        toast({ title: "User unbanned", description: "The account has been restored." });
+      }
+      fetchAll(adminKey, true); // Refresh list
+    } catch {
+      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     }
   };
 
@@ -440,11 +503,13 @@ export default function Admin() {
 
   // ── Main admin panel ───────────────────────────────────────────────────────
   const subPageTitle: Partial<Record<Tab, string>> = {
-    pending: "Pending Reviews",
+    requests: "Pending Reviews",
     players: "Players",
     bookings: "Bookings",
     owners: "Turf Owners",
     locations: "Locations",
+    payouts: "Payout Ledger",
+    search: "Global Search",
   };
 
   return (
@@ -547,24 +612,50 @@ export default function Admin() {
                   <p className="text-xs text-muted-foreground mt-0.5">Total confirmed</p>
                 </button>
 
-                <button type="button" onClick={() => setTab("pending")} data-testid="stat-pending"
+                <button type="button" onClick={() => setTab("requests")} data-testid="stat-pending"
                   className="bg-card border border-border rounded-xl p-4 text-left hover:border-yellow-400/40 hover:bg-yellow-500/5 transition-colors group">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-lg bg-yellow-500/10 flex items-center justify-center">
                         <Clock className="w-3.5 h-3.5 text-yellow-400" />
                       </div>
-                      <span className="text-xs text-muted-foreground">Pending</span>
+                      <span className="text-xs text-muted-foreground">Requests</span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                   <p className="text-2xl font-bold text-foreground">{totalPending}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {stats.pendingAccounts > 0 && `${stats.pendingAccounts} accounts`}
-                    {stats.pendingAccounts > 0 && stats.pendingTurfs > 0 && " · "}
-                    {stats.pendingTurfs > 0 && `${stats.pendingTurfs} turfs`}
-                    {totalPending === 0 && "Awaiting review"}
+                    {totalPending > 0 ? "Awaiting review" : "All caught up"}
                   </p>
+                </button>
+
+                <button type="button" onClick={() => setTab("payouts")}
+                  className="bg-card border border-border rounded-xl p-4 text-left hover:border-orange-400/40 hover:bg-orange-500/5 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                        <CreditCard className="w-3.5 h-3.5 text-orange-400" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">Payouts</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <p className="text-2xl font-bold text-foreground overflow-hidden text-ellipsis whitespace-nowrap">₹{payouts?.totalCommission.toLocaleString() || 0}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Revenue cut</p>
+                </button>
+
+                <button type="button" onClick={() => setTab("search")}
+                  className="col-span-2 bg-card border border-border rounded-xl p-4 text-left hover:border-cyan-400/40 hover:bg-cyan-500/5 transition-colors flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-cyan-500/10 flex items-center justify-center">
+                      <BookOpen className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Global Search</p>
+                      <p className="text-xs text-muted-foreground">Find users or bookings easily</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground opacity-50" />
                 </button>
 
                 <button type="button" onClick={() => setTab("locations")} data-testid="stat-locations"
@@ -585,8 +676,47 @@ export default function Admin() {
             </div>
           )}
 
-          {/* ── Pending Reviews tab ── */}
-          {tab === "pending" && (
+          {tab === "payouts" && payouts && (
+            <div className="flex-1 px-4 py-5 overflow-y-auto">
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                 <div className="p-4 bg-card rounded-xl border border-border text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Gross Rev</p>
+                    <p className="text-lg font-semibold">₹{payouts.totalGrossRevenue.toLocaleString()}</p>
+                 </div>
+                 <div className="p-4 bg-card rounded-xl border border-border text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Platform Cut</p>
+                    <p className="text-lg font-semibold text-green-500">₹{payouts.totalCommission.toLocaleString()}</p>
+                 </div>
+                 <div className="p-4 bg-card rounded-xl border border-border text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Due to Owners</p>
+                    <p className="text-lg font-semibold text-orange-500">₹{payouts.totalNetPayout.toLocaleString()}</p>
+                 </div>
+              </div>
+              
+              <h3 className="font-medium text-foreground mb-3">Owner Settlements</h3>
+              <div className="space-y-3">
+                {payouts.ownerPayouts.map((o: any) => (
+                  <div key={o.turfId} className="p-4 bg-card border border-border rounded-xl">
+                    <p className="font-semibold text-sm mb-1">{o.turfName}</p>
+                    <p className="text-xs text-muted-foreground mb-3">{o.ownerName}</p>
+                    <div className="flex items-end justify-between bg-muted/30 p-2 rounded-lg">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Bookings: {o.bookingCount}</p>
+                        <p className="text-xs text-muted-foreground">Fee: -₹{o.commission}</p>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-[10px] text-muted-foreground uppercase">Net Payout</p>
+                         <p className="font-semibold">₹{o.netPayout.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Pending Requests ── */}
+          {tab === "requests" && (
             <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
 
               {/* Pending Accounts */}

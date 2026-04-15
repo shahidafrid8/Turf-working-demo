@@ -21,6 +21,7 @@ import RoleSelect from "@/pages/RoleSelect";
 import TurfOwnerLogin from "@/pages/TurfOwnerLogin";
 import TurfOwnerRegister from "@/pages/TurfOwnerRegister";
 import TurfOwnerHome from "@/pages/TurfOwnerHome";
+import TurfStaffHome from "@/pages/TurfStaffHome";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
@@ -37,6 +38,14 @@ function PlayerRoute({ component: Component }: { component: React.ComponentType 
   if (isLoading) return <Loading />;
   if (!user) return <Redirect to="/" />;
   if (user.role === "turf_owner") return <Redirect to="/owner/home" />;
+  if (user.role === "turf_staff") return <Redirect to="/staff/home" />;
+  return <Component />;
+}
+
+function StaffRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <Loading />;
+  if (!user || user.role !== "turf_staff") return <Redirect to="/" />;
   return <Component />;
 }
 
@@ -44,7 +53,7 @@ function OwnerRoute({ component: Component }: { component: React.ComponentType }
   const { user, isLoading } = useAuth();
   if (isLoading) return <Loading />;
   if (!user) return <Redirect to="/owner/login" />;
-  if (user.role !== "turf_owner") return <Redirect to="/" />;
+  if (user.role !== "turf_owner") return <Redirect to="/owner/login" />;
   return <Component />;
 }
 
@@ -53,6 +62,7 @@ function PublicOnlyRoute({ component: Component, ownerPath }: { component: React
   if (isLoading) return <Loading />;
   if (user) {
     if (user.role === "turf_owner") return <Redirect to="/owner/home" />;
+  if (user.role === "turf_staff") return <Redirect to="/staff/home" />;
     return <Redirect to="/home" />;
   }
   return <Component />;
@@ -63,6 +73,7 @@ function RootRoute() {
   if (isLoading) return <Loading />;
   if (!user) return <RoleSelect />;
   if (user.role === "turf_owner") return <Redirect to="/owner/home" />;
+  if (user.role === "turf_staff") return <Redirect to="/staff/home" />;
   return <Redirect to="/home" />;
 }
 
@@ -93,6 +104,7 @@ function Router() {
 
       {/* Protected owner routes */}
       <Route path="/owner/home" component={() => <OwnerRoute component={TurfOwnerHome} />} />
+      <Route path="/staff/home" component={() => <StaffRoute component={TurfStaffHome} />} />
 
       {/* Admin */}
       <Route path="/admin" component={Admin} />
@@ -109,6 +121,7 @@ function AppContent() {
   const hideBottomNav =
     !user ||
     user.role === "turf_owner" ||
+    user.role === "turf_staff" ||
     location === "/" ||
     location === "/login" ||
     location === "/register" ||
@@ -116,6 +129,7 @@ function AppContent() {
     location === "/owner/login" ||
     location === "/owner/register" ||
     location === "/owner/home" ||
+    location === "/staff/home" ||
     location === "/admin" ||
     location.startsWith("/booking/") ||
     location === "/payment" ||

@@ -38,6 +38,21 @@ declare module "express-session" {
 const SALT_ROUNDS = 10;
 const ADMIN_KEY = process.env.ADMIN_KEY || "turftime-admin";
 
+// Helper: read admin key from header (not query param — prevents URL leaks)
+function getAdminKey(req: Request): string | undefined {
+  return (req.headers["x-admin-key"] as string) || (req.query.adminKey as string);
+}
+
+// Helper: basic text sanitization to prevent XSS
+function sanitizeText(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 const usernameRegex = /^(?!.*\.\.)(?!.*\.$)[a-zA-Z0-9_][a-zA-Z0-9_.]{0,28}[a-zA-Z0-9_]$|^[a-zA-Z0-9_]$/;
 
 const passwordSchema = z
@@ -119,7 +134,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (await storage.getUserByPhone(data.phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
 
       const user = await storage.createUser({
-        username: data.username,
+        username: sanitizeText(data.username),
         email: data.email.toLowerCase(),
         phoneNumber: data.phoneNumber,
         password: await bcrypt.hash(data.password, SALT_ROUNDS),
@@ -146,8 +161,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (await storage.getUserByPhone(data.phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
 
       const user = await storage.createUser({
-        username: data.username,
-        fullName: data.fullName,
+        username: sanitizeText(data.username),
+        fullName: sanitizeText(data.fullName),
         email: data.email.toLowerCase(),
         phoneNumber: data.phoneNumber,
         password: await bcrypt.hash(data.password, SALT_ROUNDS),
@@ -190,6 +205,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (!user || !(await bcrypt.compare(password, user.password))) {
         return res.status(401).json({ error: "Invalid credentials" }) as any;
+      }
+
+      // Ban check — must happen after password verification
+      if (user.isBanned) {
+        return res.status(403).json({ error: `Your account has been suspended. Reason: ${user.banReason || "Policy violation"}` }) as any;
       }
 
       req.session.userId = user.id;
@@ -337,7 +357,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Admin: add location ───────────────────────────────────────────────────
   app.post("/api/admin/locations", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const { name } = req.body;
     if (!name || typeof name !== "string" || !name.trim())
       return res.status(400).json({ error: "Location name is required" }) as any;
@@ -346,71 +366,71 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Admin: delete location ────────────────────────────────────────────────
   app.delete("/api/admin/locations/:name", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json(await storage.removeLocation(decodeURIComponent(req.params.name)));
   });
 
   // ── Admin: stats ──────────────────────────────────────────────────────────
   app.get("/api/admin/stats", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json(await storage.getAdminStats());
   });
 
   // ── Admin: all owners ─────────────────────────────────────────────────────
   app.get("/api/admin/all-owners", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const owners = await storage.getAllOwners();
     res.json(owners.map(o => safeUserResponse(o)));
   });
 
   // ── Admin: all players ────────────────────────────────────────────────────
   app.get("/api/admin/players", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const players = await storage.getAllPlayers();
     res.json(players.map(p => safeUserResponse(p)));
   });
 
   // ── Admin: all bookings ───────────────────────────────────────────────────
   app.get("/api/admin/bookings", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json(await storage.getBookings());
   });
 
   // ── Admin: list pending accounts ──────────────────────────────────────────
   app.get("/api/admin/owners", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const owners = await storage.getPendingAccounts();
     res.json(owners.map(o => safeUserResponse(o)));
   });
 
   // ── Admin: list pending turfs ─────────────────────────────────────────────
   app.get("/api/admin/pending-turfs", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const owners = await storage.getPendingTurfs();
     res.json(owners.map(o => safeUserResponse(o)));
   });
 
   // ── Admin: list pending additional turf listings (stub) ───────────────────
   app.get("/api/admin/pending-turf-listings", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json([]);
   });
 
   // ── Admin: approve additional turf listing (stub) ─────────────────────────
   app.post("/api/admin/turfs/:turfId/approve", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json({ success: true });
   });
 
   // ── Admin: reject additional turf listing (stub) ──────────────────────────
   app.post("/api/admin/turfs/:turfId/reject", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     res.json({ success: true });
   });
 
   // ── Admin: approve account ────────────────────────────────────────────────
   app.post("/api/admin/owners/:id/approve", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const user = await storage.updateOwnerStatus(req.params.id, "account_approved");
     if (!user) return res.status(404).json({ error: "Owner not found" }) as any;
     res.json(safeUserResponse(user));
@@ -418,7 +438,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Admin: reject account ─────────────────────────────────────────────────
   app.post("/api/admin/owners/:id/reject", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const user = await storage.updateOwnerStatus(req.params.id, "account_rejected");
     if (!user) return res.status(404).json({ error: "Owner not found" }) as any;
     res.json(safeUserResponse(user));
@@ -426,7 +446,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Admin: approve turf ───────────────────────────────────────────────────
   app.post("/api/admin/owners/:id/approve-turf", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const user = await storage.updateTurfStatus(req.params.id, "turf_approved");
     if (!user) return res.status(404).json({ error: "Owner not found" }) as any;
     res.json(safeUserResponse(user));
@@ -434,23 +454,86 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Admin: reject turf ────────────────────────────────────────────────────
   app.post("/api/admin/owners/:id/reject-turf", async (req: Request, res: Response) => {
-    if (req.query.adminKey !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
     const user = await storage.updateTurfStatus(req.params.id, "turf_rejected");
     if (!user) return res.status(404).json({ error: "Owner not found" }) as any;
     res.json(safeUserResponse(user));
   });
 
+  // ── Owner: Manage Staff ───────────────────────────────────────────────────
+  app.post("/api/owner/staff", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const owner = await storage.getUser(req.session.userId);
+    if (!owner || owner.role !== "turf_owner") return res.status(403).json({ error: "Only owners can add staff" }) as any;
+    if (owner.ownerStatus !== "account_approved") return res.status(403).json({ error: "Account must be approved first" }) as any;
+
+    try {
+      const data = baseRegisterSchema.extend({
+        fullName: z.string().min(2, "Full name must be at least 2 characters").max(80),
+      }).parse(req.body);
+
+      // Force username suffix if missing
+      let username = sanitizeText(data.username);
+      if (!username.endsWith("_staff")) {
+        username = `${username}_staff`;
+      }
+
+      if (await storage.getUserByUsername(username)) return res.status(409).json({ error: "Username already taken" }) as any;
+      if (await storage.getUserByEmail(data.email)) return res.status(409).json({ error: "Email address already registered" }) as any;
+      if (await storage.getUserByPhone(data.phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
+
+      const user = await storage.createUser({
+        username,
+        fullName: sanitizeText(data.fullName),
+        email: data.email.toLowerCase(),
+        phoneNumber: data.phoneNumber,
+        password: await bcrypt.hash(data.password, SALT_ROUNDS),
+        dateOfBirth: data.dateOfBirth,
+        role: "turf_staff",
+        ownerStatus: "account_approved",
+        managerId: owner.id,
+      });
+
+      res.status(201).json(safeUserResponse(user));
+    } catch (err: any) {
+      if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
+      res.status(500).json({ error: "Staff registration failed" });
+    }
+  });
+
+  app.get("/api/owner/staff", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const owner = await storage.getUser(req.session.userId);
+    if (!owner || owner.role !== "turf_owner") return res.status(403).json({ error: "Only owners can view staff" }) as any;
+    const staffMembers = await storage.getStaffByOwnerId(owner.id);
+    res.json(staffMembers.map(s => safeUserResponse(s)));
+  });
+
+  // Helper function to resolve ownerId based on role
+  async function resolveOwnerIdForContext(userId: string): Promise<string | null> {
+    const user = await storage.getUser(userId);
+    if (!user) return null;
+    if (user.role === "turf_owner") return user.id;
+    if (user.role === "turf_staff") return user.managerId || null;
+    return null;
+  }
+
   // ── Owner turfs ───────────────────────────────────────────────────────────
   app.get("/api/owner/turfs", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    console.log(`[DEBUG] /api/owner/turfs for user ${req.session.userId} resolved to owner ${ownerId}. Found ${turfs.length} turfs.`);
     res.json(turfs);
   });
 
   // ── Owner: view slots for their turf (includes isBlocked info) ────────────
   app.get("/api/owner/turfs/:turfId/slots/:date", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     const owned = turfs.find(t => t.id === req.params.turfId);
     if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
     const slots = await storage.getTimeSlots(req.params.turfId, req.params.date);
@@ -460,9 +543,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Owner: block a slot ───────────────────────────────────────────────────
   app.post("/api/owner/slots/:slotId/block", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
     const slot = await storage.getTimeSlot(req.params.slotId);
     if (!slot) return res.status(404).json({ error: "Slot not found" }) as any;
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     if (!turfs.find(t => t.id === slot.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
     if (slot.isBooked) return res.status(400).json({ error: "Slot is already booked by a player" }) as any;
     const updated = await storage.blockTimeSlot(req.params.slotId);
@@ -472,9 +557,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Owner: unblock a slot ─────────────────────────────────────────────────
   app.post("/api/owner/slots/:slotId/unblock", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
     const slot = await storage.getTimeSlot(req.params.slotId);
     if (!slot) return res.status(404).json({ error: "Slot not found" }) as any;
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     if (!turfs.find(t => t.id === slot.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
     const updated = await storage.unblockTimeSlot(req.params.slotId);
     res.json(updated);
@@ -489,7 +576,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const slot = await storage.getTimeSlot(req.params.slotId);
     if (!slot) return res.status(404).json({ error: "Slot not found" }) as any;
     
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     if (!turfs.find(t => t.id === slot.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
     
     if (applyToAllDays) {
@@ -520,12 +609,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.getTimeSlots(req.params.id, req.params.date)); } catch { res.status(500).json({ error: "Failed to fetch time slots" }); }
   });
 
-  // ── Booking routes ────────────────────────────────────────────────────────
+  // ── Booking routes (protected — require authentication) ────────────────────
   app.get("/api/bookings", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     try { res.json(await storage.getBookings()); } catch { res.status(500).json({ error: "Failed to fetch bookings" }); }
   });
 
   app.get("/api/bookings/:id", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
@@ -601,7 +692,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Owner: get all bookings for their turf ────────────────────────────────
   app.get("/api/owner/turfs/:turfId/bookings", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     const owned = turfs.find(t => t.id === req.params.turfId);
     if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
     const bookings = await storage.getBookingsByTurfId(req.params.turfId);
@@ -611,10 +704,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Owner: mark booking as paid ───────────────────────────────────────────
   app.post("/api/owner/bookings/:id/pay", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
     const booking = await storage.getBooking(req.params.id);
     if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
     
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     if (!turfs.some(t => t.id === booking.turfId)) {
       return res.status(403).json({ error: "Not your turf" }) as any;
     }
@@ -623,13 +718,106 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(updated);
   });
 
+  // ── Owner: cancel booking ──────────────────────────────────────────────────
+  app.post("/api/owner/bookings/:id/cancel", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const booking = await storage.getBooking(req.params.id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
+    
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    if (!turfs.some(t => t.id === booking.turfId)) {
+      return res.status(403).json({ error: "Not your turf" }) as any;
+    }
+    if (booking.status === "cancelled") {
+      return res.status(400).json({ error: "Booking is already cancelled" }) as any;
+    }
+    
+    const updated = await storage.cancelBooking(req.params.id);
+    res.json(updated);
+  });
+
+  // ── Player: cancel own booking ────────────────────────────────────────────
+  app.post("/api/auth/bookings/:id/cancel", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const booking = await storage.getBooking(req.params.id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
+    if (booking.userId !== req.session.userId) {
+      return res.status(403).json({ error: "This is not your booking" }) as any;
+    }
+    if (booking.status === "cancelled") {
+      return res.status(400).json({ error: "Booking is already cancelled" }) as any;
+    }
+    
+    const updated = await storage.cancelBooking(req.params.id);
+    res.json(updated);
+  });
+
+  // ── Owner: reviews for turf (stub — returns booking-based review data) ────
+  app.get("/api/owner/turfs/:turfId/reviews", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    const owned = turfs.find(t => t.id === req.params.turfId);
+    if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
+    // No reviews table yet — return empty array (UI handles this gracefully)
+    res.json([]);
+  });
+
+  // ── Owner: edit turf details ──────────────────────────────────────────────
+  app.patch("/api/owner/turf/profile", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const owner = await storage.getUser(req.session.userId);
+    if (!owner || owner.role !== "turf_owner") return res.status(403).json({ error: "Not a turf owner" }) as any;
+    
+    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    if (turfs.length === 0) return res.status(404).json({ error: "No turf found" }) as any;
+    const turf = turfs[0];
+    
+    const { name, address, pricePerHour, amenities, imageUrls } = req.body;
+    const updated = await storage.updateTurfDetails(turf.id, {
+      name: name ? sanitizeText(name) : undefined,
+      address: address ? sanitizeText(address) : undefined,
+      pricePerHour: typeof pricePerHour === "number" && pricePerHour > 0 ? pricePerHour : undefined,
+      amenities: Array.isArray(amenities) ? amenities.map((a: string) => sanitizeText(a)) : undefined,
+      imageUrl: Array.isArray(imageUrls) && imageUrls.length > 0 ? imageUrls[0] : undefined,
+    });
+    if (!updated) return res.status(500).json({ error: "Update failed" }) as any;
+    res.json(updated);
+  });
+
+  // ── App feedback routes ───────────────────────────────────────────────────
+  app.get("/api/auth/feedback", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const feedback = await storage.getAppFeedback(req.session.userId);
+    res.json(feedback || null);
+  });
+
+  app.post("/api/auth/feedback", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const { rating, feedback } = req.body;
+    if (typeof rating !== "number" || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: "Rating must be between 1 and 5" }) as any;
+    }
+    const result = await storage.upsertAppFeedback(req.session.userId, {
+      rating,
+      feedback: feedback ? sanitizeText(feedback) : undefined,
+    });
+    res.json(result);
+  });
+
   // ── Owner: analytics ────────────────────────────────────────────────────────
   app.get("/api/owner/analytics", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+
     const turfId = req.query.turf_id as string;
     if (!turfId) return res.status(400).json({ error: "Turf ID required" }) as any;
     
-    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
     const owned = turfs.find(t => t.id === turfId);
     if (!owned) return res.status(403).json({ error: "Not your turf" }) as any;
     
@@ -674,8 +862,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .map(([hour, count]) => ({ hour, count }))
       .sort((a, b) => b.count - a.count);
       
-    // Dummy occupancy rate out of 100
-    const occupancyRate = totalBookings > 0 ? Math.min(Math.round((totalBookings / 30) * 100), 100) : 0;
+    // Real occupancy rate: based on today's booked vs total slots
+    const todayStr = new Date().toISOString().split("T")[0];
+    const slotCounts = await storage.getSlotCountsByTurfAndDate(turfId, todayStr);
+    const occupancyRate = slotCounts.total > 0
+      ? Math.round((slotCounts.booked / slotCounts.total) * 100)
+      : 0;
     
     const recentBookings = bookings
       .filter(b => b.status !== "cancelled")
@@ -698,6 +890,101 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       peakHours,
       recentBookings
     });
+  });
+
+  // ── Player: submit review for a booking ───────────────────────────────────
+  app.post("/api/auth/bookings/:id/review", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const booking = await storage.getBooking(req.params.id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
+    if (booking.userId !== req.session.userId) return res.status(403).json({ error: "Not your booking" }) as any;
+    if (booking.status === "cancelled") return res.status(400).json({ error: "Cannot review a cancelled booking" }) as any;
+    if (booking.paidAmount < booking.totalAmount) return res.status(400).json({ error: "Booking must be fully paid before reviewing" }) as any;
+
+    // Must be at least 2 hours after booking end time
+    const [endHour] = booking.endTime.split(":").map(Number);
+    const bookingEndDt = new Date(`${booking.date}T${booking.endTime}:00`);
+    bookingEndDt.setHours(endHour + 2);
+    if (new Date() < bookingEndDt) {
+      return res.status(400).json({ error: "You can review 2 hours after your booking ends" }) as any;
+    }
+
+    if (await storage.hasReview(booking.id)) {
+      return res.status(409).json({ error: "You have already reviewed this booking" }) as any;
+    }
+
+    const { rating, comment } = req.body;
+    if (typeof rating !== "number" || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: "Rating must be between 1 and 5" }) as any;
+    }
+
+    await storage.markReviewPromptShown(booking.id);
+    const review = await storage.createReview({
+      bookingId: booking.id, turfId: booking.turfId,
+      userId: req.session.userId, rating,
+      comment: comment ? sanitizeText(comment) : undefined,
+    });
+    res.status(201).json(review);
+  });
+
+  // ── Public: get reviews for a turf ────────────────────────────────────────
+  app.get("/api/turfs/:id/reviews", async (req: Request, res: Response) => {
+    res.json(await storage.getReviewsByTurf(req.params.id));
+  });
+
+  // ── Owner: set weekend surcharge ──────────────────────────────────────────
+  app.patch("/api/owner/settings/weekend-surcharge", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(req.session.userId);
+    if (turfs.length === 0) return res.status(404).json({ error: "No turf found" }) as any;
+    const { surcharge } = req.body;
+    if (typeof surcharge !== "number" || surcharge < 0) {
+      return res.status(400).json({ error: "Surcharge must be a non-negative number" }) as any;
+    }
+    const updated = await storage.updateWeekendSurcharge(turfs[0].id, surcharge);
+    res.json(updated);
+  });
+
+  // ── Admin: commission payout ledger ────────────────────────────────────────
+  app.get("/api/admin/payouts", async (req: Request, res: Response) => {
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    const payoutData = await storage.getPayoutData();
+    const totalGrossRevenue = payoutData.reduce((s, p) => s + p.grossRevenue, 0);
+    const totalCommission = payoutData.reduce((s, p) => s + p.commission, 0);
+    const totalNetPayout = payoutData.reduce((s, p) => s + p.netPayout, 0);
+    res.json({ totalGrossRevenue, totalCommission, totalNetPayout, ownerPayouts: payoutData });
+  });
+
+  // ── Admin: global support search ───────────────────────────────────────────
+  app.get("/api/admin/search", async (req: Request, res: Response) => {
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    const q = (req.query.q as string || "").trim();
+    if (q.length < 2) return res.status(400).json({ error: "Query must be at least 2 characters" }) as any;
+    const results = await storage.searchAll(q);
+    res.json({
+      users: results.users.map(u => safeUserResponse(u)),
+      bookings: results.bookings,
+    });
+  });
+
+  // ── Admin: ban user ────────────────────────────────────────────────────────
+  app.post("/api/admin/users/:id/ban", async (req: Request, res: Response) => {
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    const { reason } = req.body;
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({ error: "Ban reason is required" }) as any;
+    }
+    const user = await storage.banUser(req.params.id, sanitizeText(reason.trim()));
+    if (!user) return res.status(404).json({ error: "User not found" }) as any;
+    res.json(safeUserResponse(user));
+  });
+
+  // ── Admin: unban user ──────────────────────────────────────────────────────
+  app.post("/api/admin/users/:id/unban", async (req: Request, res: Response) => {
+    if (getAdminKey(req) !== ADMIN_KEY) return res.status(403).json({ error: "Forbidden" }) as any;
+    const user = await storage.unbanUser(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" }) as any;
+    res.json(safeUserResponse(user));
   });
 
   return httpServer;

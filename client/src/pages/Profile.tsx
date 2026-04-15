@@ -21,11 +21,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useSEO } from "@/lib/seo";
 import type { Booking } from "@shared/schema";
 
 type ProfileView = "main" | "edit" | "password" | "notifications" | "privacy" | "help" | "rate";
 
 export default function Profile() {
+  useSEO({ title: "My Profile", description: "Manage your Quick Turf account." });
   const { user, logout, refreshUser } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();

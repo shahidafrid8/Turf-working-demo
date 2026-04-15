@@ -3,7 +3,8 @@ import {
   type Turf, type InsertTurf,
   type TimeSlot, type InsertTimeSlot,
   type Booking, type InsertBooking,
-  type AppFeedback, type InsertAppFeedback
+  type AppFeedback, type InsertAppFeedback,
+  type TurfReview
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { addDays, format, startOfToday } from "date-fns";
@@ -24,8 +25,12 @@ export interface IStorage {
   getPendingAccounts(): Promise<User[]>;
   getPendingTurfs(): Promise<User[]>;
   getAllOwners(): Promise<User[]>;
+  getStaffByOwnerId(ownerId: string): Promise<User[]>;
   getAllPlayers(): Promise<User[]>;
   deleteUser(id: string): Promise<void>;
+  banUser(id: string, reason: string): Promise<User | undefined>;
+  unbanUser(id: string): Promise<User | undefined>;
+  searchAll(query: string): Promise<{ users: User[]; bookings: Booking[] }>;
 
   // Locations
   getLocations(): Promise<string[]>;
@@ -48,6 +53,7 @@ export interface IStorage {
   getTurf(id: string): Promise<Turf | undefined>;
   getTurfsByOwnerId(ownerId: string): Promise<Turf[]>;
   createTurf(turf: InsertTurf): Promise<Turf>;
+  updateWeekendSurcharge(turfId: string, surcharge: number): Promise<Turf | undefined>;
 
   // Time Slots
   getTimeSlots(turfId: string, date: string): Promise<TimeSlot[]>;
@@ -66,6 +72,19 @@ export interface IStorage {
   getBookingsByUserId(userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   markBookingPaid(id: string): Promise<Booking | undefined>;
+  cancelBooking(id: string): Promise<Booking | undefined>;
+  markReviewPromptShown(bookingId: string): Promise<void>;
+
+  // Turf management
+  updateTurfDetails(turfId: string, data: { name?: string; address?: string; pricePerHour?: number; amenities?: string[]; imageUrl?: string }): Promise<Turf | undefined>;
+  unbookTimeSlot(id: string): Promise<TimeSlot | undefined>;
+  getSlotCountsByTurfAndDate(turfId: string, date: string): Promise<{ total: number; booked: number }>;
+
+  // Reviews
+  createReview(data: { bookingId: string; turfId: string; userId: string; rating: number; comment?: string }): Promise<TurfReview>;
+  getReviewsByTurf(turfId: string): Promise<TurfReview[]>;
+  hasReview(bookingId: string): Promise<boolean>;
+  getPayoutData(): Promise<{ ownerId: string; ownerName: string; turfId: string; turfName: string; grossRevenue: number; commission: number; netPayout: number; bookingCount: number }[]>;
 
   // App Feedback
   getAppFeedback(userId: string): Promise<AppFeedback | undefined>;
@@ -82,33 +101,36 @@ const turfImages = [
 ];
 
 const initialTurfs: Omit<Turf, "ownerId">[] = [
-  { id: "turf-1", name: "Green Valley Cricket Ground", location: "Indiranagar, Bangalore", address: "123 Sports Complex, Indiranagar, Bangalore 560038", imageUrl: turfImages[0], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water"], sportTypes: ["Cricket"], pricePerHour: 1200, isAvailable: true, featured: true },
-  { id: "turf-2", name: "Champions Cricket Ground", location: "Koramangala, Bangalore", address: "456 Stadium Road, Koramangala, Bangalore 560034", imageUrl: turfImages[1], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Water"], sportTypes: ["Cricket"], pricePerHour: 1500, isAvailable: true, featured: true },
-  { id: "turf-3", name: "Cricket Paradise", location: "HSR Layout, Bangalore", address: "789 Sports Avenue, HSR Layout, Bangalore 560102", imageUrl: turfImages[2], rating: 4, amenities: ["Parking", "Changing Room", "Water"], sportTypes: ["Cricket"], pricePerHour: 800, isAvailable: true, featured: false },
-  { id: "turf-4", name: "Elite Cricket Hub", location: "Whitefield, Bangalore", address: "101 Tech Park, Whitefield, Bangalore 560066", imageUrl: turfImages[3], rating: 4, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe"], sportTypes: ["Cricket"], pricePerHour: 1000, isAvailable: true, featured: true },
-  { id: "turf-5", name: "Premier Cricket Arena", location: "Electronic City, Bangalore", address: "202 Sports Complex, Electronic City, Bangalore 560100", imageUrl: turfImages[4], rating: 5, amenities: ["Parking", "Showers", "Water"], sportTypes: ["Cricket"], pricePerHour: 2000, isAvailable: true, featured: true },
-  { id: "turf-6", name: "Professional Cricket Grounds", location: "MG Road, Bangalore", address: "303 Central Complex, MG Road, Bangalore 560001", imageUrl: turfImages[5], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water"], sportTypes: ["Cricket"], pricePerHour: 1800, isAvailable: true, featured: false },
+  { id: "turf-1", name: "Green Valley Cricket Ground", location: "Indiranagar, Bangalore", address: "123 Sports Complex, Indiranagar, Bangalore 560038", imageUrl: turfImages[0], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water"], sportTypes: ["Cricket"], pricePerHour: 1200, weekendSurcharge: 0, isAvailable: true, featured: true },
+  { id: "turf-2", name: "Champions Cricket Ground", location: "Koramangala, Bangalore", address: "456 Stadium Road, Koramangala, Bangalore 560034", imageUrl: turfImages[1], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Water"], sportTypes: ["Cricket"], pricePerHour: 1500, weekendSurcharge: 0, isAvailable: true, featured: true },
+  { id: "turf-3", name: "Cricket Paradise", location: "HSR Layout, Bangalore", address: "789 Sports Avenue, HSR Layout, Bangalore 560102", imageUrl: turfImages[2], rating: 4, amenities: ["Parking", "Changing Room", "Water"], sportTypes: ["Cricket"], pricePerHour: 800, weekendSurcharge: 0, isAvailable: true, featured: false },
+  { id: "turf-4", name: "Elite Cricket Hub", location: "Whitefield, Bangalore", address: "101 Tech Park, Whitefield, Bangalore 560066", imageUrl: turfImages[3], rating: 4, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe"], sportTypes: ["Cricket"], pricePerHour: 1000, weekendSurcharge: 0, isAvailable: true, featured: true },
+  { id: "turf-5", name: "Premier Cricket Arena", location: "Electronic City, Bangalore", address: "202 Sports Complex, Electronic City, Bangalore 560100", imageUrl: turfImages[4], rating: 5, amenities: ["Parking", "Showers", "Water"], sportTypes: ["Cricket"], pricePerHour: 2000, weekendSurcharge: 0, isAvailable: true, featured: true },
+  { id: "turf-6", name: "Professional Cricket Grounds", location: "MG Road, Bangalore", address: "303 Central Complex, MG Road, Bangalore 560001", imageUrl: turfImages[5], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water"], sportTypes: ["Cricket"], pricePerHour: 1800, weekendSurcharge: 0, isAvailable: true, featured: false },
 ];
 
-function generateTimeSlots(turfId: string, date: string, basePrice: number): TimeSlot[] {
+function generateTimeSlots(turfId: string, date: string, basePrice: number, weekendSurcharge = 0): TimeSlot[] {
   const slots: TimeSlot[] = [];
+  const dayOfWeek = new Date(date + "T12:00:00Z").getUTCDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const surcharge = isWeekend ? weekendSurcharge : 0;
 
   const morningTimes = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00"];
   morningTimes.forEach((time, index) => {
     const endHour = parseInt(time.split(":")[0]) + 1;
-    slots.push({ id: `${turfId}-${date}-morning-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: basePrice, period: "morning", isBooked: false, isBlocked: false });
+    slots.push({ id: `${turfId}-${date}-morning-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: basePrice + surcharge, period: "morning", isBooked: false, isBlocked: false });
   });
 
   const afternoonTimes = ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
   afternoonTimes.forEach((time, index) => {
     const endHour = parseInt(time.split(":")[0]) + 1;
-    slots.push({ id: `${turfId}-${date}-afternoon-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: Math.round(basePrice * 1.2), period: "afternoon", isBooked: false, isBlocked: false });
+    slots.push({ id: `${turfId}-${date}-afternoon-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: Math.round(basePrice * 1.2) + surcharge, period: "afternoon", isBooked: false, isBlocked: false });
   });
 
   const eveningTimes = ["18:00", "19:00", "20:00", "21:00", "22:00"];
   eveningTimes.forEach((time, index) => {
     const endHour = parseInt(time.split(":")[0]) + 1;
-    slots.push({ id: `${turfId}-${date}-evening-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: Math.round(basePrice * 1.5), period: "evening", isBooked: false, isBlocked: false });
+    slots.push({ id: `${turfId}-${date}-evening-${index}`, turfId, date, startTime: time, endTime: `${endHour.toString().padStart(2, "0")}:00`, price: Math.round(basePrice * 1.5) + surcharge, period: "evening", isBooked: false, isBlocked: false });
   });
 
   return slots;
@@ -120,6 +142,7 @@ export class MemStorage implements IStorage {
   private timeSlots: Map<string, TimeSlot>;
   private bookings: Map<string, Booking>;
   private appFeedbacks: Map<string, AppFeedback>;
+  private turfReviews: Map<string, TurfReview>;
   private locations: string[];
 
   constructor() {
@@ -128,60 +151,31 @@ export class MemStorage implements IStorage {
     this.timeSlots = new Map();
     this.bookings = new Map();
     this.appFeedbacks = new Map();
+    this.turfReviews = new Map();
     this.locations = [
-      "Bangalore",
-      "Chennai",
-      "Mumbai",
-      "Delhi",
-      "Hyderabad",
-      "Pune",
-      "Kolkata",
-      "Ahmedabad",
-      "Nandyal",
+      "Bangalore", "Chennai", "Mumbai", "Delhi",
+      "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Nandyal",
     ];
 
-    // ── Seed test accounts ────────────────────────────────────────────────
     const playerUser: User = {
-      id: "seed-player-shahid",
-      username: "shahid",
-      fullName: "Shahid Afrid",
-      email: "shahid@gmail.com",
-      phoneNumber: "1234567890",
-      password: bcrypt.hashSync("shahid123", 10),
-      dateOfBirth: "2006-06-25",
-      role: "player",
-      ownerStatus: null,
-      turfStatus: null,
-      turfName: null,
-      turfLocation: null,
-      turfAddress: null,
-      turfPincode: null,
-      turfImageUrls: null,
-      turfLength: null,
-      turfWidth: null,
-      profileImageUrl: null,
+      id: "seed-player-shahid", username: "shahid", fullName: "Shahid Afrid",
+      email: "shahid@gmail.com", phoneNumber: "1234567890",
+      password: bcrypt.hashSync("shahid123", 10), dateOfBirth: "2006-06-25",
+      role: "player", isBanned: false, banReason: null,
+      ownerStatus: null, turfStatus: null, turfName: null, turfLocation: null,
+      turfAddress: null, turfPincode: null, turfImageUrls: null,
+      turfLength: null, turfWidth: null, profileImageUrl: null,
     };
     this.users.set(playerUser.id, playerUser);
 
     const playerUser2: User = {
-      id: "seed-player-shamanth",
-      username: "shamanth",
-      fullName: "Shamanth",
-      email: "shamanth@gmail.com",
-      phoneNumber: "0987654322",
-      password: bcrypt.hashSync("shamanth123", 10),
-      dateOfBirth: "2000-01-01",
-      role: "player",
-      ownerStatus: null,
-      turfStatus: null,
-      turfName: null,
-      turfLocation: null,
-      turfAddress: null,
-      turfPincode: null,
-      turfImageUrls: null,
-      turfLength: null,
-      turfWidth: null,
-      profileImageUrl: null,
+      id: "seed-player-shamanth", username: "shamanth", fullName: "Shamanth",
+      email: "shamanth@gmail.com", phoneNumber: "0987654322",
+      password: bcrypt.hashSync("shamanth123", 10), dateOfBirth: "2000-01-01",
+      role: "player", isBanned: false, banReason: null,
+      ownerStatus: null, turfStatus: null, turfName: null, turfLocation: null,
+      turfAddress: null, turfPincode: null, turfImageUrls: null,
+      turfLength: null, turfWidth: null, profileImageUrl: null,
     };
     this.users.set(playerUser2.id, playerUser2);
 
@@ -190,69 +184,57 @@ export class MemStorage implements IStorage {
       const fs = require("fs");
       const path = require("path");
       const files = fs.readdirSync(path.join(process.cwd(), "uploads"));
-      if (files.length > 0) {
-        tharakUploadedImage = "/uploads/" + files[files.length - 1]; // Use last uploaded file
-      }
-    } catch (e) {
-      // Ignore
-    }
+      if (files.length > 0) tharakUploadedImage = "/uploads/" + files[files.length - 1];
+    } catch (e) { /* Ignore */ }
 
     const ownerUser: User = {
-      id: "seed-owner-tharak",
-      username: "tharak",
-      fullName: "Tharakesh",
-      email: "tharak@gmail.com",
-      phoneNumber: "0987654321",
-      password: bcrypt.hashSync("tharak123", 10),
-      dateOfBirth: "2005-02-04",
-      role: "turf_owner",
-      ownerStatus: "account_approved",
-      turfStatus: "turf_approved",
-      turfName: "Tharak's Turf",
-      turfLocation: "Nandyal",
-      turfAddress: "balaji complex, Nandyal, 518501",
-      turfPincode: "518501",
-      turfImageUrls: [tharakUploadedImage],
-      turfLength: 120,
-      turfWidth: 80,
+      id: "seed-owner-tharak", username: "tharak", fullName: "Tharakesh",
+      email: "tharak@gmail.com", phoneNumber: "0987654321",
+      password: bcrypt.hashSync("tharak123", 10), dateOfBirth: "2005-02-04",
+      role: "turf_owner", isBanned: false, banReason: null,
+      ownerStatus: "account_approved", turfStatus: "turf_approved",
+      turfName: "Tharak's Turf", turfLocation: "Nandyal",
+      turfAddress: "balaji complex, Nandyal, 518501", turfPincode: "518501",
+      turfImageUrls: [tharakUploadedImage], turfLength: 120, turfWidth: 80,
       profileImageUrl: null,
     };
     this.users.set(ownerUser.id, ownerUser);
 
-    // ── Tharak's approved turf ────────────────────────────────────────────
     const tharakTurf: Turf = {
-      id: "seed-turf-tharak",
-      ownerId: ownerUser.id,
-      name: "Tharak's Turf",
-      location: "Nandyal",
-      address: "balaji complex, Nandyal, 518501",
-      imageUrl: tharakUploadedImage,
-      rating: 5,
-      amenities: ["Parking"],
-      sportTypes: ["Cricket"],
-      pricePerHour: 1000,
-      isAvailable: true,
-      featured: true,
+      id: "seed-turf-tharak", ownerId: ownerUser.id,
+      name: "Tharak's Turf", location: "Nandyal",
+      address: "balaji complex, Nandyal, 518501", imageUrl: tharakUploadedImage,
+      rating: 5, amenities: ["Parking"], sportTypes: ["Cricket"],
+      pricePerHour: 1000, weekendSurcharge: 0, isAvailable: true, featured: true,
     };
     this.turfs.set(tharakTurf.id, tharakTurf);
 
-    // ── Seed sample turfs ─────────────────────────────────────────────────
+    const aliUser: User = {
+      id: "seed-staff-ali", username: "ali_staff", fullName: "Ali",
+      email: "ali@gmail.com", phoneNumber: "8888888888",
+      password: bcrypt.hashSync("ali@123", 10), dateOfBirth: "2000-01-01",
+      role: "turf_staff", isBanned: false, banReason: null,
+      ownerStatus: "account_approved", turfStatus: null, managerId: ownerUser.id,
+      turfName: null, turfLocation: null, turfAddress: null, turfPincode: null, turfImageUrls: null, turfLength: null, turfWidth: null, profileImageUrl: null
+    };
+    this.users.set(aliUser.id, aliUser);
+
     initialTurfs.forEach(turf => {
       this.turfs.set(turf.id, { ...turf, ownerId: null });
     });
 
-    // ── Generate time slots for all turfs (including Tharak's) ────────────
     const today = startOfToday();
     const allTurfs = [tharakTurf, ...initialTurfs.map(t => ({ ...t, ownerId: null as string | null }))];
     allTurfs.forEach(turf => {
       for (let i = 0; i < 14; i++) {
         const date = format(addDays(today, i), "yyyy-MM-dd");
-        generateTimeSlots(turf.id, date, turf.pricePerHour).forEach(slot => {
+        generateTimeSlots(turf.id, date, turf.pricePerHour, turf.weekendSurcharge).forEach(slot => {
           this.timeSlots.set(slot.id, slot);
         });
       }
     });
   }
+
 
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
@@ -285,6 +267,7 @@ export class MemStorage implements IStorage {
       turfStatus: null,
       profileImageUrl: null,
       fullName: null,
+      managerId: null,
       ...insertUser,
       id,
     };
@@ -348,6 +331,7 @@ export class MemStorage implements IStorage {
         amenities: ["Parking"],
         sportTypes: ["Cricket"],
         pricePerHour: 1000,
+        weekendSurcharge: 0,
         isAvailable: true,
         featured: false,
       };
@@ -384,7 +368,9 @@ export class MemStorage implements IStorage {
   }
 
   async getPendingAccounts(): Promise<User[]> {
-    return Array.from(this.users.values()).filter(u => u.role === "turf_owner" && u.ownerStatus === "pending_account");
+    return Array.from(this.users.values()).filter(u => 
+      u.role === "turf_owner" && u.ownerStatus === "pending_account"
+    );
   }
 
   async getPendingTurfs(): Promise<User[]> {
@@ -393,6 +379,10 @@ export class MemStorage implements IStorage {
 
   async getAllOwners(): Promise<User[]> {
     return Array.from(this.users.values()).filter(u => u.role === "turf_owner");
+  }
+
+  async getStaffByOwnerId(ownerId: string): Promise<User[]> {
+    return Array.from(this.users.values()).filter(u => u.role === "turf_staff" && u.managerId === ownerId);
   }
 
   async getAllPlayers(): Promise<User[]> {
@@ -443,7 +433,7 @@ export class MemStorage implements IStorage {
 
   async createTurf(insertTurf: InsertTurf): Promise<Turf> {
     const id = randomUUID();
-    const turf: Turf = { rating: 5, isAvailable: true, featured: false, ownerId: null, ...insertTurf, id };
+    const turf: Turf = { rating: 5, isAvailable: true, featured: false, ownerId: null, weekendSurcharge: 0, ...insertTurf, id };
     this.turfs.set(id, turf);
     return turf;
   }
@@ -488,7 +478,7 @@ export class MemStorage implements IStorage {
   }
 
   async updateTimeSlotPriceByStartTime(turfId: string, startTime: string, price: number): Promise<void> {
-    for (const [id, slot] of this.timeSlots.entries()) {
+    for (const [id, slot] of Array.from(this.timeSlots.entries())) {
       if (slot.turfId === turfId && slot.startTime === startTime) {
         slot.price = price;
         this.timeSlots.set(id, slot);
@@ -514,7 +504,7 @@ export class MemStorage implements IStorage {
 
   async createBooking(insertBooking: InsertBooking): Promise<Booking> {
     const id = randomUUID();
-    const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, ...insertBooking, id, createdAt: new Date() };
+    const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, reviewPromptShown: false, ...insertBooking, id, createdAt: new Date() };
     this.bookings.set(bookingEntity.id, bookingEntity);
     return bookingEntity;
   }
@@ -527,6 +517,53 @@ export class MemStorage implements IStorage {
       this.bookings.set(id, booking);
     }
     return booking;
+  }
+
+  async cancelBooking(id: string): Promise<Booking | undefined> {
+    const booking = this.bookings.get(id);
+    if (!booking || booking.status === "cancelled") return booking;
+
+    // Free up booked time slots
+    const durationHours = Math.ceil((booking.duration || 60) / 60);
+    const startHour = parseInt(booking.startTime.split(':')[0]);
+    const slots = await this.getTimeSlots(booking.turfId, booking.date);
+    for (let i = 0; i < durationHours; i++) {
+      const hourStr = `${(startHour + i).toString().padStart(2, '0')}:00`;
+      const slot = slots.find(s => s.startTime === hourStr);
+      if (slot && slot.isBooked) {
+        await this.unbookTimeSlot(slot.id);
+      }
+    }
+
+    booking.status = "cancelled";
+    this.bookings.set(id, booking);
+    return booking;
+  }
+
+  async updateTurfDetails(turfId: string, data: { name?: string; address?: string; pricePerHour?: number; amenities?: string[]; imageUrl?: string }): Promise<Turf | undefined> {
+    const turf = this.turfs.get(turfId);
+    if (!turf) return undefined;
+    if (data.name !== undefined) turf.name = data.name;
+    if (data.address !== undefined) turf.address = data.address;
+    if (data.pricePerHour !== undefined) turf.pricePerHour = data.pricePerHour;
+    if (data.amenities !== undefined) turf.amenities = data.amenities;
+    if (data.imageUrl !== undefined) turf.imageUrl = data.imageUrl;
+    this.turfs.set(turfId, turf);
+    return turf;
+  }
+
+  async unbookTimeSlot(id: string): Promise<TimeSlot | undefined> {
+    const slot = this.timeSlots.get(id);
+    if (slot) { slot.isBooked = false; this.timeSlots.set(id, slot); }
+    return slot;
+  }
+
+  async getSlotCountsByTurfAndDate(turfId: string, date: string): Promise<{ total: number; booked: number }> {
+    const slots = await this.getTimeSlots(turfId, date);
+    return {
+      total: slots.length,
+      booked: slots.filter(s => s.isBooked).length,
+    };
   }
 
   async getAppFeedback(userId: string): Promise<AppFeedback | undefined> {
@@ -545,6 +582,115 @@ export class MemStorage implements IStorage {
     };
     this.appFeedbacks.set(userId, feedback);
     return feedback;
+  }
+
+  // ── Ban / Unban ─────────────────────────────────────────────────────────────
+  async banUser(id: string, reason: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    user.isBanned = true;
+    user.banReason = reason;
+    this.users.set(id, user);
+    return user;
+  }
+
+  async unbanUser(id: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    user.isBanned = false;
+    user.banReason = null;
+    this.users.set(id, user);
+    return user;
+  }
+
+  // ── Global Search ───────────────────────────────────────────────────────────
+  async searchAll(query: string): Promise<{ users: User[]; bookings: Booking[] }> {
+    const q = query.toLowerCase().trim();
+    const users = Array.from(this.users.values()).filter(u =>
+      u.username.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.phoneNumber.includes(q) ||
+      (u.fullName || "").toLowerCase().includes(q)
+    );
+    const bookings = Array.from(this.bookings.values()).filter(b =>
+      b.bookingCode.toLowerCase().includes(q) ||
+      (b.userName || "").toLowerCase().includes(q) ||
+      (b.userPhone || "").includes(q)
+    );
+    return { users, bookings };
+  }
+
+  // ── Weekend Surcharge ───────────────────────────────────────────────────────
+  async updateWeekendSurcharge(turfId: string, surcharge: number): Promise<Turf | undefined> {
+    const turf = this.turfs.get(turfId);
+    if (!turf) return undefined;
+    turf.weekendSurcharge = surcharge;
+    this.turfs.set(turfId, turf);
+    return turf;
+  }
+
+  // ── Reviews ─────────────────────────────────────────────────────────────────
+  async markReviewPromptShown(bookingId: string): Promise<void> {
+    const booking = this.bookings.get(bookingId);
+    if (booking) {
+      booking.reviewPromptShown = true;
+      this.bookings.set(bookingId, booking);
+    }
+  }
+
+  async createReview(data: { bookingId: string; turfId: string; userId: string; rating: number; comment?: string }): Promise<TurfReview> {
+    const review: TurfReview = {
+      id: randomUUID(),
+      bookingId: data.bookingId,
+      turfId: data.turfId,
+      userId: data.userId,
+      rating: data.rating,
+      comment: data.comment || null,
+      createdAt: new Date(),
+    };
+    this.turfReviews.set(review.id, review);
+
+    // Recalculate and update turf's average rating
+    const turfReviewsList = await this.getReviewsByTurf(data.turfId);
+    const avgRating = Math.round(turfReviewsList.reduce((sum, r) => sum + r.rating, 0) / turfReviewsList.length);
+    const turf = this.turfs.get(data.turfId);
+    if (turf) { turf.rating = avgRating; this.turfs.set(data.turfId, turf); }
+
+    return review;
+  }
+
+  async getReviewsByTurf(turfId: string): Promise<TurfReview[]> {
+    return Array.from(this.turfReviews.values())
+      .filter(r => r.turfId === turfId)
+      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+  }
+
+  async hasReview(bookingId: string): Promise<boolean> {
+    return Array.from(this.turfReviews.values()).some(r => r.bookingId === bookingId);
+  }
+
+  // ── Payout Ledger ───────────────────────────────────────────────────────────
+  async getPayoutData(): Promise<{ ownerId: string; ownerName: string; turfId: string; turfName: string; grossRevenue: number; commission: number; netPayout: number; bookingCount: number }[]> {
+    const COMMISSION_RATE = 0.05;
+    const allBookings = Array.from(this.bookings.values()).filter(b => b.status !== "cancelled");
+    const ownerTurfs = Array.from(this.turfs.values()).filter(t => t.ownerId);
+
+    return ownerTurfs.map(turf => {
+      const turfBookings = allBookings.filter(b => b.turfId === turf.id);
+      const grossRevenue = turfBookings.reduce((sum, b) => sum + b.totalAmount, 0);
+      const commission = Math.round(grossRevenue * COMMISSION_RATE);
+      const owner = this.users.get(turf.ownerId!);
+      return {
+        ownerId: turf.ownerId!,
+        ownerName: owner?.fullName || owner?.username || "Unknown",
+        turfId: turf.id,
+        turfName: turf.name,
+        grossRevenue,
+        commission,
+        netPayout: grossRevenue - commission,
+        bookingCount: turfBookings.length,
+      };
+    });
   }
 }
 

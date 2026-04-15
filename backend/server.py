@@ -104,7 +104,15 @@ def safe_user(u: dict) -> dict:
         "turfAddress": u.get("turfAddress"), "turfPincode": u.get("turfPincode"),
         "turfImageUrls": u.get("turfImageUrls"), "turfLength": u.get("turfLength"),
         "turfWidth": u.get("turfWidth"), "profileImageUrl": u.get("profileImageUrl"),
+        "managerId": u.get("managerId"),
     }
+
+def get_owner_id_for_context(user: dict) -> str:
+    if user.get("role") == "turf_owner":
+        return user["_id"]
+    if user.get("role") == "turf_staff" and user.get("managerId"):
+        return user.get("managerId")
+    raise HTTPException(403, "Not authorized context")
 
 def safe_turf(t: dict) -> dict:
     return {
@@ -185,6 +193,14 @@ class PlayerRegister(BaseModel):
 class OwnerRegister(BaseModel):
     fullName: str
     username: str
+    email: str
+    phoneNumber: str
+    dateOfBirth: str
+    password: str
+
+class StaffRegister(BaseModel):
+    username: str
+    fullName: str
     email: str
     phoneNumber: str
     dateOfBirth: str
@@ -586,13 +602,15 @@ async def submit_turf(body: TurfSubmit, user=Depends(get_current_user)):
 # ── Owner: Get turfs ────────────────────────────────────────────────────────────
 @app.get("/api/owner/turfs")
 async def owner_turfs(user=Depends(get_current_user)):
-    turfs = await turfs_col.find({"ownerId": user["_id"]}).to_list(None)
+    owner_id = get_owner_id_for_context(user)
+    turfs = await turfs_col.find({"ownerId": owner_id}).to_list(None)
     return [safe_turf(t) for t in turfs]
 
 # ── Owner: Get slots ───────────────────────────────────────────────────────────
 @app.get("/api/owner/turfs/{turf_id}/slots/{date}")
 async def owner_slots(turf_id: str, date: str, user=Depends(get_current_user)):
-    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": user["_id"]})
+    owner_id = get_owner_id_for_context(user)
+    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     return await ensure_slots(turf_id, date, turf.get("pricePerHour", 1000),
@@ -601,10 +619,11 @@ async def owner_slots(turf_id: str, date: str, user=Depends(get_current_user)):
 # ── Owner: Block/Unblock slots ─────────────────────────────────────────────────
 @app.post("/api/owner/slots/{slot_id}/block")
 async def block_slot(slot_id: str, user=Depends(get_current_user)):
+    owner_id = get_owner_id_for_context(user)
     slot = await slots_col.find_one({"_id": slot_id})
     if not slot:
         raise HTTPException(404, "Slot not found")
-    turf = await turfs_col.find_one({"_id": slot["turfId"], "ownerId": user["_id"]})
+    turf = await turfs_col.find_one({"_id": slot["turfId"], "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     if slot.get("isBooked"):
@@ -615,10 +634,11 @@ async def block_slot(slot_id: str, user=Depends(get_current_user)):
 
 @app.post("/api/owner/slots/{slot_id}/unblock")
 async def unblock_slot(slot_id: str, user=Depends(get_current_user)):
+    owner_id = get_owner_id_for_context(user)
     slot = await slots_col.find_one({"_id": slot_id})
     if not slot:
         raise HTTPException(404, "Slot not found")
-    turf = await turfs_col.find_one({"_id": slot["turfId"], "ownerId": user["_id"]})
+    turf = await turfs_col.find_one({"_id": slot["turfId"], "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     await slots_col.update_one({"_id": slot_id}, {"$set": {"isBlocked": False}})
@@ -628,7 +648,8 @@ async def unblock_slot(slot_id: str, user=Depends(get_current_user)):
 # ── Owner: Bookings ─────────────────────────────────────────────────────────────
 @app.get("/api/owner/turfs/{turf_id}/bookings")
 async def owner_bookings(turf_id: str, user=Depends(get_current_user)):
-    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": user["_id"]})
+    owner_id = get_owner_id_for_context(user)
+    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     bks = await bookings_col.find({"turfId": turf_id}).sort("createdAt", -1).to_list(None)
@@ -637,10 +658,11 @@ async def owner_bookings(turf_id: str, user=Depends(get_current_user)):
 # ── Owner: Cancel Booking ──────────────────────────────────────────────────────
 @app.post("/api/owner/bookings/{booking_id}/cancel")
 async def cancel_booking(booking_id: str, user=Depends(get_current_user)):
+    owner_id = get_owner_id_for_context(user)
     booking = await bookings_col.find_one({"_id": booking_id})
     if not booking:
         raise HTTPException(404, "Booking not found")
-    turf = await turfs_col.find_one({"_id": booking["turfId"], "ownerId": user["_id"]})
+    turf = await turfs_col.find_one({"_id": booking["turfId"], "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     if booking.get("status") == "cancelled":
@@ -730,19 +752,57 @@ async def update_turf_profile(body: TurfProfileUpdate, user=Depends(get_current_
     updated_turf = await turfs_col.find_one({"_id": turf["_id"]})
     return safe_turf(updated_turf)
 
+# ── Owner: Staff Management ───────────────────────────────────────────────────
+@app.post("/api/owner/staff")
+async def create_staff(body: StaffRegister, user=Depends(get_current_user)):
+    if user.get("role") != "turf_owner":
+        raise HTTPException(403, "Only owners can add staff")
+    if user.get("ownerStatus") != "account_approved":
+        raise HTTPException(403, "Account must be approved first")
+
+    username = body.username.strip()
+    if not username.endswith("_staff"):
+        username = f"{username}_staff"
+
+    existing = await users_col.find_one({"$or": [{"username": username}, {"email": body.email}, {"phoneNumber": body.phoneNumber}]})
+    if existing:
+        raise HTTPException(409, "User already exists with this identifier")
+
+    uid = str(uuid.uuid4())
+    pw_hash = bcrypt.hashpw(body.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    staff_user = {
+        "_id": uid,
+        "username": username,
+        "fullName": body.fullName,
+        "email": body.email.lower(),
+        "phoneNumber": body.phoneNumber,
+        "password": pw_hash,
+        "dateOfBirth": body.dateOfBirth,
+        "role": "turf_staff",
+        "managerId": user["_id"],
+    }
+    await users_col.insert_one(staff_user)
+    return safe_user(staff_user)
+
+@app.get("/api/owner/staff")
+async def get_staff(user=Depends(get_current_user)):
+    if user.get("role") != "turf_owner":
+        raise HTTPException(403, "Only owners can view staff")
+    staff = await users_col.find({"role": "turf_staff", "managerId": user["_id"]}).to_list(None)
+    return [safe_user(s) for s in staff]
+
 # ── Owner: Analytics ───────────────────────────────────────────────────────────
 @app.get("/api/owner/analytics")
 async def owner_analytics(turf_id: str = Query(None), user=Depends(get_current_user)):
-    if user.get("role") != "turf_owner":
-        raise HTTPException(403, "Not a turf owner")
+    owner_id = get_owner_id_for_context(user)
     # Get all turfs for this owner
     if turf_id:
-        turf = await turfs_col.find_one({"_id": turf_id, "ownerId": user["_id"]})
+        turf = await turfs_col.find_one({"_id": turf_id, "ownerId": owner_id})
         if not turf:
             raise HTTPException(403, "Not your turf")
         turf_ids = [turf_id]
     else:
-        turfs = await turfs_col.find({"ownerId": user["_id"]}).to_list(None)
+        turfs = await turfs_col.find({"ownerId": owner_id}).to_list(None)
         turf_ids = [t["_id"] for t in turfs]
 
     all_bookings = await bookings_col.find({"turfId": {"$in": turf_ids}}).to_list(None)
@@ -837,7 +897,8 @@ async def submit_review(turf_id: str, body: ReviewCreate, user=Depends(get_curre
 
 @app.get("/api/owner/turfs/{turf_id}/reviews")
 async def owner_reviews(turf_id: str, user=Depends(get_current_user)):
-    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": user["_id"]})
+    owner_id = get_owner_id_for_context(user)
+    turf = await turfs_col.find_one({"_id": turf_id, "ownerId": owner_id})
     if not turf:
         raise HTTPException(403, "Not your turf")
     reviews = await reviews_col.find({"turfId": turf_id}).sort("createdAt", -1).to_list(None)

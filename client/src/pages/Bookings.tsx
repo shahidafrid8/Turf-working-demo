@@ -1,16 +1,34 @@
-import { useQuery } from "@tanstack/react-query";
-import { Calendar, Clock, MapPin, ChevronRight, Check } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Calendar, Clock, MapPin, ChevronRight, Check, Star, MessageSquare } from "lucide-react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Booking } from "@shared/schema";
+import { useSEO } from "@/lib/seo";
 
 export default function Bookings() {
+  useSEO({
+    title: "My Bookings",
+    description: "View and manage your Quick Turf bookings.",
+  });
+
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [selectedBookingForReview, setSelectedBookingForReview] = useState<Booking | null>(null);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+
   const { data: bookings, isLoading } = useQuery<Booking[]>({
     queryKey: ["/api/auth/my-bookings"],
     enabled: !!user,
@@ -24,9 +42,61 @@ export default function Bookings() {
     navigate("/confirmation");
   };
 
-  const BookingCard = ({ booking }: { booking: Booking }) => (
+  const reviewMutation = useMutation({
+    mutationFn: async (data: { bookingId: string; rating: number; comment: string }) => {
+      const res = await fetch(`/api/auth/bookings/${data.bookingId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: data.rating, comment: data.comment }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to submit review");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/my-bookings"] });
+      setReviewModalOpen(false);
+      toast({ title: "Review submitted!", description: "Thanks for your feedback." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Submission failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const checkNeedsReview = (booking: Booking) => {
+    if (booking.status === "cancelled" || booking.reviewPromptShown) return false;
+    if (booking.paidAmount < booking.totalAmount) return false;
+    const [endHour] = booking.endTime.split(":").map(Number);
+    const bookingEndDt = new Date(`${booking.date}T${booking.endTime}:00`);
+    bookingEndDt.setHours(endHour + 2);
+    return new Date() >= bookingEndDt;
+  };
+
+  const BookingCard = ({ booking }: { booking: Booking }) => {
+    const needsReview = checkNeedsReview(booking);
+    
+    return (
+    <div className="space-y-3">
+    {needsReview && (
+      <Card className="p-3 bg-gradient-to-r from-yellow-500/10 to-transparent border-yellow-500/20 cursor-pointer" 
+        onClick={() => {
+          setSelectedBookingForReview(booking);
+          setRating(5);
+          setComment("");
+          setReviewModalOpen(true);
+        }}>
+        <div className="flex items-center gap-2">
+          <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400">How was your game?</h4>
+            <p className="text-xs text-muted-foreground">Leave a review for {booking.turfName}</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        </div>
+      </Card>
+    )}
     <Card
       className="p-4 hover-elevate cursor-pointer"
+
       data-testid={`card-booking-${booking.id}`}
       onClick={() => handleViewDetails(booking)}
     >
@@ -77,7 +147,9 @@ export default function Bookings() {
         </div>
       </div>
     </Card>
+    </div>
   );
+  };
 
   const EmptyState = ({ type }: { type: "upcoming" | "past" }) => (
     <div className="text-center py-12">
@@ -151,6 +223,57 @@ export default function Bookings() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Review Modal */}
+      <Dialog open={reviewModalOpen} onOpenChange={setReviewModalOpen}>
+        <DialogContent className="sm:max-w-md w-[calc(100%-2rem)] rounded-xl p-0 overflow-hidden bg-card border-border">
+          <div className="p-6">
+            <DialogHeader className="mb-4">
+              <DialogTitle className="text-xl">Rate your game 🏏</DialogTitle>
+              <DialogDescription>
+                How was your experience at {selectedBookingForReview?.turfName}?
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex justify-center gap-2 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button 
+                  key={star} 
+                  onClick={() => setRating(star)}
+                  className="p-1 hover:scale-110 transition-transform focus:outline-none"
+                >
+                  <Star className={`w-10 h-10 ${rating >= star ? "text-yellow-400 fill-yellow-400" : "text-muted"}`} />
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2 mb-6">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> Add a comment (optional)
+              </label>
+              <Textarea 
+                placeholder="The pitch was great, lighting was perfect..."
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                className="bg-background resize-none border-border"
+                rows={3}
+              />
+            </div>
+
+            <Button 
+              className="w-full h-12 text-lg font-semibold"
+              disabled={reviewMutation.isPending}
+              onClick={() => {
+                if (selectedBookingForReview) {
+                  reviewMutation.mutate({ bookingId: selectedBookingForReview.id, rating, comment });
+                }
+              }}
+            >
+              {reviewMutation.isPending ? "Submitting..." : "Submit Review"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

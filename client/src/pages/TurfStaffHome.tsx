@@ -537,7 +537,7 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
               <p className={cn("text-[10px] mt-1 font-medium", isBooked && "text-muted-foreground", isBlocked && "text-destructive", isAvailable && "text-primary/70")}>
                 {isBooked ? "Booked" : isBlocked ? "Blocked" : "Open"}
               </p>
-              {!isBooked && user?.role !== "turf_staff" && ( <button type="button" data-testid={`btn-edit-price-${slot.id}`} onClick={(e) => handleEditClick(e, slot)} className="absolute top-1.5 right-1.5 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background border border-border/50 text-muted-foreground hover:text-foreground"> <Pencil className="w-3 h-3" /> </button> )}
+              
             </div>
           );
         })}
@@ -1323,13 +1323,13 @@ function StaffMembersPanel() {
 // ── Main TurfOwnerHome ─────────────────────────────────────────────────────────
 type TabType = "slots" | "bookings" | "analytics" | "edit" | "reviews" | "staff";
 
-export default function TurfOwnerHome() {
+export default function TurfStaffHome() {
   useSEO({ title: "Owner Dashboard | Quick Turf", description: "Manage your turf bookings, pricing, and analytics." });
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
   const [expandedTurfId, setExpandedTurfId] = useState<string | null>(null);
   const [activeTabs, setActiveTabs] = useState<Record<string, TabType>>({});
-  const [showNewTurfForm, setShowNewTurfForm] = useState(false);
+  
   const queryClient = useQueryClient();
 
   const { data: turfs = [] } = useQuery<Turf[]>({
@@ -1378,7 +1378,7 @@ export default function TurfOwnerHome() {
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex items-center justify-between px-5 pt-8 pb-4">
         <div>
-          <p className="text-muted-foreground text-xs uppercase tracking-wider font-medium">QuickTurf Owner</p>
+          <p className="text-muted-foreground text-xs uppercase tracking-wider font-medium">QuickTurf Staff</p>
           <h1 className="text-foreground font-bold text-xl mt-0.5">{user.fullName ?? `@${user.username}`}</h1>
           {user.fullName && <p className="text-muted-foreground text-xs">@{user.username}</p>}
         </div>
@@ -1582,22 +1582,7 @@ export default function TurfOwnerHome() {
                   </div>
                 ))}
 
-                {/* Add Another Turf */}
-                {!showNewTurfForm ? (
-                  <button
-                    data-testid="button-add-another-turf"
-                    onClick={() => setShowNewTurfForm(true)}
-                    className="w-full flex items-center justify-center gap-2 border border-dashed border-border rounded-xl p-4 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    Add Another Turf
-                  </button>
-                ) : (
-                  <NewTurfForm
-                    onClose={() => setShowNewTurfForm(false)}
-                    onSuccess={() => setShowNewTurfForm(false)}
-                  />
-                )}
+                
               </div>
             )}
 

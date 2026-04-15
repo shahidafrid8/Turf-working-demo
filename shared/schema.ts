@@ -11,7 +11,11 @@ export const users = pgTable("users", {
   phoneNumber: text("phone_number").notNull().unique(),
   password: text("password").notNull(),
   dateOfBirth: text("date_of_birth").notNull(),
-  role: text("role").notNull().default("player"), // 'player' | 'turf_owner'
+  role: text("role").notNull().default("player"), // 'player' | 'turf_owner' | 'turf_staff'
+  managerId: text("manager_id"), // links turf_staff to turf_owner
+  // Moderation
+  isBanned: boolean("is_banned").notNull().default(false),
+  banReason: text("ban_reason"),
   // Turf owner account status
   ownerStatus: text("owner_status"), // null | 'pending_account' | 'account_approved' | 'account_rejected'
   // Turf listing status (set after account is approved and owner submits turf)
@@ -42,6 +46,7 @@ export const turfs = pgTable("turfs", {
   amenities: text("amenities").array().notNull(),
   sportTypes: text("sport_types").array().notNull(),
   pricePerHour: integer("price_per_hour").notNull(),
+  weekendSurcharge: integer("weekend_surcharge").notNull().default(0),
   isAvailable: boolean("is_available").notNull().default(true),
   featured: boolean("featured").notNull().default(false),
 });
@@ -86,6 +91,7 @@ export const bookings = pgTable("bookings", {
   userId: text("user_id"),
   userName: text("user_name"),
   userPhone: text("user_phone"),
+  reviewPromptShown: boolean("review_prompt_shown").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -106,3 +112,18 @@ export const appFeedback = pgTable("app_feedback", {
 export const insertAppFeedbackSchema = createInsertSchema(appFeedback).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAppFeedback = z.infer<typeof insertAppFeedbackSchema>;
 export type AppFeedback = typeof appFeedback.$inferSelect;
+
+// Turf Reviews model (one per booking, submitted after full payment + 2h)
+export const turfReviews = pgTable("turf_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  bookingId: varchar("booking_id").notNull().unique(),
+  turfId: varchar("turf_id").notNull(),
+  userId: text("user_id").notNull(),
+  rating: integer("rating").notNull(), // 1-5
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTurfReviewSchema = createInsertSchema(turfReviews).omit({ id: true, createdAt: true });
+export type InsertTurfReview = z.infer<typeof insertTurfReviewSchema>;
+export type TurfReview = typeof turfReviews.$inferSelect;
