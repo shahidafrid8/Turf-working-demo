@@ -3,12 +3,16 @@ import {
   type Turf, type InsertTurf,
   type TimeSlot, type InsertTimeSlot,
   type Booking, type InsertBooking,
+  type SlotHold, type InsertSlotHold,
+  type PricingRule, type InsertPricingRule,
   type AppFeedback, type InsertAppFeedback,
   type TurfReview,
   users as usersTable,
   turfs as turfsTable,
   timeSlots as timeSlotsTable,
   bookings as bookingsTable,
+  slotHolds as slotHoldsTable,
+  pricingRules as pricingRulesTable,
   appFeedback as appFeedbackTable,
   turfReviews as turfReviewsTable,
 } from "@shared/schema";
@@ -79,7 +83,12 @@ export interface IStorage {
   getBookingsByUserId(userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   createBookingWithSlotLock(booking: InsertBooking, slotIds: string[]): Promise<Booking>;
+  createSlotHold(hold: Omit<InsertSlotHold, "status" | "expiresAt">, slotIds: string[], holdMinutes?: number): Promise<SlotHold>;
+  getSlotHold(id: string): Promise<SlotHold | undefined>;
+  confirmSlotHold(id: string, providerReference?: string): Promise<Booking>;
+  expireSlotHolds(now?: Date): Promise<number>;
   markBookingPaid(id: string): Promise<Booking | undefined>;
+  updateBookingStatus(id: string, status: Booking["status"]): Promise<Booking | undefined>;
   cancelBooking(id: string): Promise<Booking | undefined>;
   markReviewPromptShown(bookingId: string): Promise<void>;
 
@@ -87,6 +96,11 @@ export interface IStorage {
   updateTurfDetails(turfId: string, data: { name?: string; address?: string; pricePerHour?: number; amenities?: string[]; imageUrl?: string }): Promise<Turf | undefined>;
   unbookTimeSlot(id: string): Promise<TimeSlot | undefined>;
   getSlotCountsByTurfAndDate(turfId: string, date: string): Promise<{ total: number; booked: number }>;
+  getOwnerCalendar(turfId: string, startDate: string, endDate: string): Promise<{ date: string; slots: TimeSlot[]; bookings: Booking[]; holds: SlotHold[] }[]>;
+  createPricingRule(rule: InsertPricingRule): Promise<PricingRule>;
+  getPricingRule(id: string): Promise<PricingRule | undefined>;
+  getPricingRulesByTurf(turfId: string): Promise<PricingRule[]>;
+  setPricingRuleActive(id: string, active: boolean): Promise<PricingRule | undefined>;
 
   // Reviews
   createReview(data: { bookingId: string; turfId: string; userId: string; rating: number; comment?: string }): Promise<TurfReview>;
@@ -149,6 +163,8 @@ export class MemStorage implements IStorage {
   private turfs: Map<string, Turf>;
   private timeSlots: Map<string, TimeSlot>;
   private bookings: Map<string, Booking>;
+  private slotHolds: Map<string, SlotHold>;
+  private pricingRules: Map<string, PricingRule>;
   private appFeedbacks: Map<string, AppFeedback>;
   private turfReviews: Map<string, TurfReview>;
   private locations: string[];
@@ -161,6 +177,8 @@ export class MemStorage implements IStorage {
     this.turfs = new Map();
     this.timeSlots = new Map();
     this.bookings = new Map();
+    this.slotHolds = new Map();
+    this.pricingRules = new Map();
     this.appFeedbacks = new Map();
     this.turfReviews = new Map();
     this.locations = [
@@ -256,11 +274,13 @@ export class MemStorage implements IStorage {
     if (!db) return;
 
     try {
-      const [dbUsers, dbTurfs, dbSlots, dbBookings, dbFeedbacks, dbReviews] = await Promise.all([
+      const [dbUsers, dbTurfs, dbSlots, dbBookings, dbHolds, dbPricingRules, dbFeedbacks, dbReviews] = await Promise.all([
         db.select().from(usersTable),
         db.select().from(turfsTable),
         db.select().from(timeSlotsTable),
         db.select().from(bookingsTable),
+        db.select().from(slotHoldsTable),
+        db.select().from(pricingRulesTable),
         db.select().from(appFeedbackTable),
         db.select().from(turfReviewsTable),
       ]);
@@ -270,6 +290,8 @@ export class MemStorage implements IStorage {
         dbTurfs.length > 0 ||
         dbSlots.length > 0 ||
         dbBookings.length > 0 ||
+        dbHolds.length > 0 ||
+        dbPricingRules.length > 0 ||
         dbFeedbacks.length > 0 ||
         dbReviews.length > 0;
 
@@ -282,10 +304,15 @@ export class MemStorage implements IStorage {
       this.turfs = new Map(dbTurfs.map((t) => [t.id, t]));
       this.timeSlots = new Map(dbSlots.map((s) => [s.id, s]));
       this.bookings = new Map(dbBookings.map((b) => [b.id, b]));
+      this.slotHolds = new Map(dbHolds.map((h) => [h.id, h]));
+      this.pricingRules = new Map(dbPricingRules.map((r) => [r.id, r]));
       this.appFeedbacks = new Map(dbFeedbacks.map((f) => [f.userId, f]));
       this.turfReviews = new Map(dbReviews.map((r) => [r.id, r]));
     } catch (error) {
       console.error("[storage] Failed loading from database; falling back to in-memory seed data", error);
+      if (process.env.NODE_ENV === "production") {
+        throw error;
+      }
     }
   }
 
@@ -296,11 +323,15 @@ export class MemStorage implements IStorage {
     const turfsValues = Array.from(this.turfs.values());
     const slotValues = Array.from(this.timeSlots.values());
     const bookingValues = Array.from(this.bookings.values());
+    const holdValues = Array.from(this.slotHolds.values());
+    const pricingRuleValues = Array.from(this.pricingRules.values());
     const feedbackValues = Array.from(this.appFeedbacks.values());
     const reviewValues = Array.from(this.turfReviews.values());
 
     await db.delete(turfReviewsTable);
     await db.delete(appFeedbackTable);
+    await db.delete(pricingRulesTable);
+    await db.delete(slotHoldsTable);
     await db.delete(bookingsTable);
     await db.delete(timeSlotsTable);
     await db.delete(turfsTable);
@@ -310,6 +341,8 @@ export class MemStorage implements IStorage {
     if (turfsValues.length) await db.insert(turfsTable).values(turfsValues);
     if (slotValues.length) await db.insert(timeSlotsTable).values(slotValues);
     if (bookingValues.length) await db.insert(bookingsTable).values(bookingValues);
+    if (holdValues.length) await db.insert(slotHoldsTable).values(holdValues);
+    if (pricingRuleValues.length) await db.insert(pricingRulesTable).values(pricingRuleValues);
     if (feedbackValues.length) await db.insert(appFeedbackTable).values(feedbackValues);
     if (reviewValues.length) await db.insert(turfReviewsTable).values(reviewValues);
   }
@@ -532,7 +565,15 @@ export class MemStorage implements IStorage {
   }
 
   async getTimeSlots(turfId: string, date: string): Promise<TimeSlot[]> {
-    return Array.from(this.timeSlots.values()).filter(s => s.turfId === turfId && s.date === date);
+    await this.expireSlotHolds();
+    const heldSlotIds = new Set(
+      this.getActiveHolds()
+        .filter((hold) => hold.turfId === turfId && hold.date === date)
+        .flatMap((hold) => hold.slotIds),
+    );
+    return Array.from(this.timeSlots.values())
+      .filter(s => s.turfId === turfId && s.date === date)
+      .map((slot) => heldSlotIds.has(slot.id) ? { ...slot, isBlocked: true } : slot);
   }
 
   async getTimeSlot(id: string): Promise<TimeSlot | undefined> {
@@ -603,8 +644,12 @@ export class MemStorage implements IStorage {
   }
 
   async createBookingWithSlotLock(insertBooking: InsertBooking, slotIds: string[]): Promise<Booking> {
-    if (slotIds.length === 0) {
+    const uniqueSlotIds = Array.from(new Set(slotIds)).sort();
+    if (uniqueSlotIds.length === 0) {
       throw Object.assign(new Error("No slots selected"), { status: 400 });
+    }
+    if (uniqueSlotIds.length !== slotIds.length) {
+      throw Object.assign(new Error("Duplicate slots selected"), { status: 400 });
     }
 
     const id = randomUUID();
@@ -620,10 +665,11 @@ export class MemStorage implements IStorage {
     };
 
     if (!this.isDatabaseEnabled) {
-      const slots = slotIds.map(slotId => this.timeSlots.get(slotId));
+      const slots = uniqueSlotIds.map(slotId => this.timeSlots.get(slotId));
       if (slots.some(slot => !slot || slot.isBooked || slot.isBlocked)) {
         throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
       }
+      this.assertBookingMatchesSlots(insertBooking, slots.filter((slot): slot is TimeSlot => Boolean(slot)));
       for (const slot of slots) {
         if (slot) this.timeSlots.set(slot.id, { ...slot, isBooked: true });
       }
@@ -640,29 +686,42 @@ export class MemStorage implements IStorage {
       await client.query("BEGIN");
 
       const locked = await client.query(
-        `SELECT id, is_booked, is_blocked
+        `SELECT id, turf_id, date, start_time, end_time, price, is_booked, is_blocked
          FROM time_slots
          WHERE id = ANY($1::varchar[])
+         ORDER BY id
          FOR UPDATE`,
-        [slotIds],
+        [uniqueSlotIds],
       );
 
       if (
-        locked.rowCount !== slotIds.length ||
+        locked.rowCount !== uniqueSlotIds.length ||
         locked.rows.some((row) => row.is_booked || row.is_blocked)
       ) {
         await client.query("ROLLBACK");
         throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
       }
 
+      this.assertBookingMatchesSlots(insertBooking, locked.rows.map((row) => ({
+        id: row.id,
+        turfId: row.turf_id,
+        date: row.date,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        price: row.price,
+        period: "",
+        isBooked: row.is_booked,
+        isBlocked: row.is_blocked,
+      })));
+
       const updated = await client.query(
         `UPDATE time_slots
          SET is_booked = true
          WHERE id = ANY($1::varchar[]) AND is_booked = false AND is_blocked = false`,
-        [slotIds],
+        [uniqueSlotIds],
       );
 
-      if (updated.rowCount !== slotIds.length) {
+      if (updated.rowCount !== uniqueSlotIds.length) {
         await client.query("ROLLBACK");
         throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
       }
@@ -702,7 +761,7 @@ export class MemStorage implements IStorage {
 
       await client.query("COMMIT");
 
-      for (const slotId of slotIds) {
+      for (const slotId of uniqueSlotIds) {
         const slot = this.timeSlots.get(slotId);
         if (slot) this.timeSlots.set(slotId, { ...slot, isBooked: true });
       }
@@ -717,14 +776,302 @@ export class MemStorage implements IStorage {
     }
   }
 
+  private getActiveHolds(now = new Date()): SlotHold[] {
+    return Array.from(this.slotHolds.values()).filter((hold) =>
+      hold.status === "active" && new Date(hold.expiresAt).getTime() > now.getTime()
+    );
+  }
+
+  private hasActiveHoldForSlots(slotIds: string[], ignoreIdempotencyKey?: string): boolean {
+    const slotIdSet = new Set(slotIds);
+    return this.getActiveHolds().some((hold) =>
+      hold.idempotencyKey !== ignoreIdempotencyKey && hold.slotIds.some((slotId) => slotIdSet.has(slotId))
+    );
+  }
+
+  async createSlotHold(
+    insertHold: Omit<InsertSlotHold, "status" | "expiresAt">,
+    slotIds: string[],
+    holdMinutes = 10,
+  ): Promise<SlotHold> {
+    await this.expireSlotHolds();
+    const existing = Array.from(this.slotHolds.values()).find((hold) => hold.idempotencyKey === insertHold.idempotencyKey);
+    if (existing && existing.status === "active" && new Date(existing.expiresAt).getTime() > Date.now()) {
+      return existing;
+    }
+
+    const uniqueSlotIds = Array.from(new Set(slotIds)).sort();
+    if (uniqueSlotIds.length === 0 || uniqueSlotIds.length !== slotIds.length) {
+      throw Object.assign(new Error("Invalid selected slots"), { status: 400 });
+    }
+
+    const hold: SlotHold = {
+      ...insertHold,
+      id: randomUUID(),
+      slotIds: uniqueSlotIds,
+      status: "active",
+      expiresAt: new Date(Date.now() + holdMinutes * 60 * 1000),
+      createdAt: new Date(),
+      providerReference: insertHold.providerReference ?? null,
+      userId: insertHold.userId ?? null,
+      userName: insertHold.userName ?? null,
+      userPhone: insertHold.userPhone ?? null,
+    };
+
+    if (!this.isDatabaseEnabled) {
+      const slots = uniqueSlotIds.map(slotId => this.timeSlots.get(slotId));
+      if (slots.some(slot => !slot || slot.isBooked || slot.isBlocked)) {
+        throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
+      }
+      if (this.hasActiveHoldForSlots(uniqueSlotIds, hold.idempotencyKey)) {
+        throw Object.assign(new Error("One or more selected slots are currently held for payment"), { status: 409 });
+      }
+      this.assertBookingMatchesSlots(hold, slots.filter((slot): slot is TimeSlot => Boolean(slot)));
+      this.slotHolds.set(hold.id, hold);
+      return hold;
+    }
+
+    if (!pool) throw Object.assign(new Error("Database is not configured"), { status: 500 });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE slot_holds SET status = 'expired'
+         WHERE status = 'active' AND expires_at <= NOW()`,
+      );
+
+      const existingHold = await client.query(
+        `SELECT * FROM slot_holds
+         WHERE idempotency_key = $1 AND status = 'active' AND expires_at > NOW()
+         LIMIT 1`,
+        [hold.idempotencyKey],
+      );
+      if (existingHold.rows[0]) {
+        await client.query("COMMIT");
+        const dbHold = this.mapSlotHoldRow(existingHold.rows[0]);
+        this.slotHolds.set(dbHold.id, dbHold);
+        return dbHold;
+      }
+
+      const locked = await client.query(
+        `SELECT id, turf_id, date, start_time, end_time, price, is_booked, is_blocked
+         FROM time_slots
+         WHERE id = ANY($1::varchar[])
+         ORDER BY id
+         FOR UPDATE`,
+        [uniqueSlotIds],
+      );
+      if (
+        locked.rowCount !== uniqueSlotIds.length ||
+        locked.rows.some((row) => row.is_booked || row.is_blocked)
+      ) {
+        await client.query("ROLLBACK");
+        throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
+      }
+
+      const conflictingHold = await client.query(
+        `SELECT id FROM slot_holds
+         WHERE status = 'active'
+           AND expires_at > NOW()
+           AND slot_ids && $1::text[]
+         LIMIT 1
+         FOR UPDATE`,
+        [uniqueSlotIds],
+      );
+      if ((conflictingHold.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        throw Object.assign(new Error("One or more selected slots are currently held for payment"), { status: 409 });
+      }
+
+      this.assertBookingMatchesSlots(hold, locked.rows.map((row) => ({
+        id: row.id,
+        turfId: row.turf_id,
+        date: row.date,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        price: row.price,
+        period: "",
+        isBooked: row.is_booked,
+        isBlocked: row.is_blocked,
+      })));
+
+      await client.query(
+        `INSERT INTO slot_holds (
+          id, turf_id, turf_name, turf_address, date, start_time, end_time, duration,
+          total_amount, paid_amount, balance_amount, payment_method, booking_code,
+          slot_ids, idempotency_key, status, user_id, user_name, user_phone,
+          provider_reference, expires_at, created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19,
+          $20, $21, $22
+        )`,
+        [
+          hold.id, hold.turfId, hold.turfName, hold.turfAddress, hold.date, hold.startTime, hold.endTime, hold.duration,
+          hold.totalAmount, hold.paidAmount, hold.balanceAmount, hold.paymentMethod, hold.bookingCode,
+          hold.slotIds, hold.idempotencyKey, hold.status, hold.userId, hold.userName, hold.userPhone,
+          hold.providerReference, hold.expiresAt, hold.createdAt,
+        ],
+      );
+
+      await client.query("COMMIT");
+      this.slotHolds.set(hold.id, hold);
+      return hold;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getSlotHold(id: string): Promise<SlotHold | undefined> {
+    await this.expireSlotHolds();
+    return this.slotHolds.get(id);
+  }
+
+  async confirmSlotHold(id: string, providerReference?: string): Promise<Booking> {
+    await this.expireSlotHolds();
+    const hold = this.slotHolds.get(id);
+    if (!hold) throw Object.assign(new Error("Payment hold not found"), { status: 404 });
+    if (hold.status !== "active" || new Date(hold.expiresAt).getTime() <= Date.now()) {
+      throw Object.assign(new Error("Payment hold has expired"), { status: 409 });
+    }
+
+    const booking = await this.createBookingWithSlotLock({
+      turfId: hold.turfId,
+      turfName: hold.turfName,
+      turfAddress: hold.turfAddress,
+      date: hold.date,
+      startTime: hold.startTime,
+      endTime: hold.endTime,
+      duration: hold.duration,
+      totalAmount: hold.totalAmount,
+      paidAmount: hold.paidAmount,
+      balanceAmount: hold.balanceAmount,
+      paymentMethod: hold.paymentMethod,
+      status: "confirmed",
+      bookingCode: hold.bookingCode,
+      userId: hold.userId,
+      userName: hold.userName,
+      userPhone: hold.userPhone,
+      reviewPromptShown: false,
+    }, hold.slotIds);
+
+    const updatedHold: SlotHold = {
+      ...hold,
+      status: "confirmed",
+      providerReference: providerReference || hold.providerReference,
+    };
+    this.slotHolds.set(id, updatedHold);
+
+    if (this.isDatabaseEnabled && pool) {
+      await pool.query(
+        `UPDATE slot_holds SET status = 'confirmed', provider_reference = COALESCE($2, provider_reference) WHERE id = $1`,
+        [id, providerReference || null],
+      );
+    }
+
+    return booking;
+  }
+
+  async expireSlotHolds(now = new Date()): Promise<number> {
+    let expiredCount = 0;
+    for (const [id, hold] of Array.from(this.slotHolds.entries())) {
+      if (hold.status === "active" && new Date(hold.expiresAt).getTime() <= now.getTime()) {
+        this.slotHolds.set(id, { ...hold, status: "expired" });
+        expiredCount++;
+      }
+    }
+
+    if (expiredCount > 0 && this.isDatabaseEnabled && pool) {
+      await pool.query(
+        `UPDATE slot_holds SET status = 'expired' WHERE status = 'active' AND expires_at <= $1`,
+        [now],
+      );
+    }
+
+    return expiredCount;
+  }
+
+  private mapSlotHoldRow(row: any): SlotHold {
+    return {
+      id: row.id,
+      turfId: row.turf_id,
+      turfName: row.turf_name,
+      turfAddress: row.turf_address,
+      date: row.date,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      duration: row.duration,
+      totalAmount: row.total_amount,
+      paidAmount: row.paid_amount,
+      balanceAmount: row.balance_amount,
+      paymentMethod: row.payment_method,
+      bookingCode: row.booking_code,
+      slotIds: row.slot_ids,
+      idempotencyKey: row.idempotency_key,
+      status: row.status,
+      userId: row.user_id,
+      userName: row.user_name,
+      userPhone: row.user_phone,
+      providerReference: row.provider_reference,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  private assertBookingMatchesSlots(insertBooking: InsertBooking, slots: TimeSlot[]): void {
+    const durationHours = Math.ceil(insertBooking.duration / 60);
+    if (durationHours !== slots.length) {
+      throw Object.assign(new Error("Selected slots do not match booking duration"), { status: 400 });
+    }
+
+    const sortedSlots = [...slots].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const startHour = parseInt(insertBooking.startTime.split(":")[0], 10);
+    const expectedStartTimes = Array.from({ length: durationHours }, (_value, index) =>
+      `${(startHour + index).toString().padStart(2, "0")}:00`
+    );
+    const slotStartTimes = sortedSlots.map((slot) => slot.startTime);
+
+    const hasExpectedSlots = expectedStartTimes.every((startTime, index) => slotStartTimes[index] === startTime);
+    if (!hasExpectedSlots) {
+      throw Object.assign(new Error("Selected slots must be contiguous"), { status: 400 });
+    }
+
+    if (sortedSlots.some((slot) => slot.turfId !== insertBooking.turfId || slot.date !== insertBooking.date)) {
+      throw Object.assign(new Error("Selected slots do not belong to this turf and date"), { status: 400 });
+    }
+
+    const expectedEndTime = sortedSlots[sortedSlots.length - 1]?.endTime;
+    if (expectedEndTime !== insertBooking.endTime) {
+      throw Object.assign(new Error("Booking end time does not match selected slots"), { status: 400 });
+    }
+
+    const totalAmount = sortedSlots.reduce((sum, slot) => sum + slot.price, 0);
+    if (insertBooking.totalAmount !== totalAmount) {
+      throw Object.assign(new Error("Booking total does not match current slot pricing"), { status: 400 });
+    }
+  }
+
   async markBookingPaid(id: string): Promise<Booking | undefined> {
     const booking = this.bookings.get(id);
     if (booking) {
       booking.paidAmount = booking.totalAmount;
       booking.balanceAmount = 0;
+      booking.status = "paid";
       this.bookings.set(id, booking);
     }
     return booking;
+  }
+
+  async updateBookingStatus(id: string, status: Booking["status"]): Promise<Booking | undefined> {
+    const booking = this.bookings.get(id);
+    if (!booking) return undefined;
+    const updated = { ...booking, status };
+    this.bookings.set(id, updated);
+    return updated;
   }
 
   async cancelBooking(id: string): Promise<Booking | undefined> {
@@ -746,6 +1093,81 @@ export class MemStorage implements IStorage {
     booking.status = "cancelled";
     this.bookings.set(id, booking);
     return booking;
+  }
+
+  async getOwnerCalendar(turfId: string, startDate: string, endDate: string): Promise<{ date: string; slots: TimeSlot[]; bookings: Booking[]; holds: SlotHold[] }[]> {
+    await this.expireSlotHolds();
+    const days: { date: string; slots: TimeSlot[]; bookings: Booking[]; holds: SlotHold[] }[] = [];
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+      const date = format(cursor, "yyyy-MM-dd");
+      days.push({
+        date,
+        slots: await this.getTimeSlots(turfId, date),
+        bookings: Array.from(this.bookings.values()).filter((booking) => booking.turfId === turfId && booking.date === date),
+        holds: this.getActiveHolds().filter((hold) => hold.turfId === turfId && hold.date === date),
+      });
+    }
+    return days;
+  }
+
+  async createPricingRule(insertRule: InsertPricingRule): Promise<PricingRule> {
+    const rule: PricingRule = {
+      isActive: true,
+      adjustmentType: "fixed",
+      startDate: null,
+      endDate: null,
+      startTime: null,
+      endTime: null,
+      daysOfWeek: null,
+      ...insertRule,
+      id: randomUUID(),
+      createdAt: new Date(),
+    };
+    this.pricingRules.set(rule.id, rule);
+    this.applyPricingRuleToFutureSlots(rule);
+    return rule;
+  }
+
+  async getPricingRulesByTurf(turfId: string): Promise<PricingRule[]> {
+    return Array.from(this.pricingRules.values()).filter((rule) => rule.turfId === turfId);
+  }
+
+  async getPricingRule(id: string): Promise<PricingRule | undefined> {
+    return this.pricingRules.get(id);
+  }
+
+  async setPricingRuleActive(id: string, active: boolean): Promise<PricingRule | undefined> {
+    const rule = this.pricingRules.get(id);
+    if (!rule) return undefined;
+    const updated = { ...rule, isActive: active };
+    this.pricingRules.set(id, updated);
+    return updated;
+  }
+
+  private applyPricingRuleToFutureSlots(rule: PricingRule): void {
+    if (!rule.isActive) return;
+    for (const [slotId, slot] of Array.from(this.timeSlots.entries())) {
+      if (slot.turfId !== rule.turfId || slot.isBooked) continue;
+      if (!this.pricingRuleMatchesSlot(rule, slot)) continue;
+      const nextPrice = rule.adjustmentType === "percent"
+        ? Math.max(100, Math.round(slot.price + (slot.price * rule.adjustmentValue) / 100))
+        : Math.max(100, slot.price + rule.adjustmentValue);
+      this.timeSlots.set(slotId, { ...slot, price: nextPrice });
+    }
+  }
+
+  private pricingRuleMatchesSlot(rule: PricingRule, slot: TimeSlot): boolean {
+    if (rule.startDate && slot.date < rule.startDate) return false;
+    if (rule.endDate && slot.date > rule.endDate) return false;
+    if (rule.startTime && slot.startTime < rule.startTime) return false;
+    if (rule.endTime && slot.startTime >= rule.endTime) return false;
+    if (rule.daysOfWeek && rule.daysOfWeek.length > 0) {
+      const day = new Date(`${slot.date}T12:00:00Z`).getUTCDay();
+      if (!rule.daysOfWeek.includes(day)) return false;
+    }
+    return true;
   }
 
   async updateTurfDetails(turfId: string, data: { name?: string; address?: string; pricePerHour?: number; amenities?: string[]; imageUrl?: string }): Promise<Turf | undefined> {
@@ -923,11 +1345,17 @@ const mutatingMethods = new Set<keyof IStorage>([
   "updateTimeSlotPrice",
   "updateTimeSlotPriceByStartTime",
   "createBooking",
+  "createSlotHold",
+  "confirmSlotHold",
+  "expireSlotHolds",
   "markBookingPaid",
+  "updateBookingStatus",
   "cancelBooking",
   "markReviewPromptShown",
   "updateTurfDetails",
   "unbookTimeSlot",
+  "createPricingRule",
+  "setPricingRuleActive",
   "createReview",
   "upsertAppFeedback",
 ]);

@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import { insertBookingSchema } from "@shared/schema";
+import { insertBookingSchema, insertPricingRuleSchema } from "@shared/schema";
 import { storage } from "../storage";
 
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -101,29 +101,79 @@ export const staffRegisterSchema = baseRegisterSchema.extend({
 }).strict();
 
 export const slotPriceSchema = z.object({
-  price: z.number().int().positive(),
+  price: z.number().int().min(100).max(100_000),
   applyToAllDays: z.boolean().optional().default(false),
 }).strict();
 
-export const bookingRequestSchema = insertBookingSchema.extend({
+const bookingRequestBaseSchema = insertBookingSchema.extend({
   turfId: z.string().min(1),
   turfName: z.string().min(1),
   turfAddress: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
-  duration: z.number().int().positive().max(24 * 60),
-  totalAmount: z.number().int().nonnegative(),
+  duration: z.number().int().positive().max(5 * 60).refine((value) => value % 60 === 0, "Duration must be in full-hour increments"),
+  totalAmount: z.number().int().positive(),
   paidAmount: z.number().int().nonnegative(),
   balanceAmount: z.number().int().nonnegative(),
-  paymentMethod: z.string().min(1).max(40),
+  paymentMethod: z.enum(["upi", "card", "wallet", "cash", "venue"]),
   bookingCode: z.string().min(1).max(80),
+}).strict();
+
+export const bookingRequestSchema = bookingRequestBaseSchema
+  .refine((data) => data.paidAmount + data.balanceAmount === data.totalAmount, {
+    message: "Paid and balance amounts must match the booking total",
+    path: ["balanceAmount"],
+  })
+  .refine((data) => data.paidAmount <= data.totalAmount, {
+    message: "Paid amount cannot exceed booking total",
+    path: ["paidAmount"],
+  })
+  .refine((data) => data.endTime > data.startTime, {
+    message: "End time must be after start time",
+    path: ["endTime"],
+  });
+
+export const slotHoldRequestSchema = bookingRequestBaseSchema.extend({
+  idempotencyKey: z.string().min(12).max(120),
+}).strict()
+  .refine((data) => data.paidAmount + data.balanceAmount === data.totalAmount, {
+    message: "Paid and balance amounts must match the booking total",
+    path: ["balanceAmount"],
+  })
+  .refine((data) => data.paidAmount <= data.totalAmount, {
+    message: "Paid amount cannot exceed booking total",
+    path: ["paidAmount"],
+  })
+  .refine((data) => data.endTime > data.startTime, {
+    message: "End time must be after start time",
+    path: ["endTime"],
+  });
+
+export const paymentWebhookSchema = z.object({
+  holdId: z.string().min(1),
+  providerReference: z.string().min(3).max(120),
+  status: z.enum(["payment_succeeded", "payment_failed"]),
+}).strict();
+
+export const pricingRuleSchema = insertPricingRuleSchema.extend({
+  name: z.string().min(2).max(80),
+  turfId: z.string().min(1),
+  ruleType: z.enum(["weekend", "peak_hour", "holiday", "offer"]),
+  adjustmentType: z.enum(["fixed", "percent"]).default("fixed"),
+  adjustmentValue: z.number().int().min(-100_000).max(100_000),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional().nullable(),
+  isActive: z.boolean().optional().default(true),
 }).strict();
 
 export const ownerTurfProfileSchema = z.object({
   name: z.string().min(3).max(120).optional(),
   address: z.string().min(5).max(500).optional(),
-  pricePerHour: z.number().int().positive().optional(),
+  pricePerHour: z.number().int().min(100).max(100_000).optional(),
   amenities: z.array(z.string().min(1).max(60)).max(30).optional(),
   imageUrls: z.array(z.string().min(1).max(500)).max(5).optional(),
 }).strict();
@@ -139,8 +189,8 @@ export const reviewSchema = z.object({
 }).strict();
 
 export const weekendSurchargeSchema = z.object({
-  surcharge: z.number().int().nonnegative().optional(),
-  weekendSurcharge: z.number().int().nonnegative().optional(),
+  surcharge: z.number().int().min(0).max(50_000).optional(),
+  weekendSurcharge: z.number().int().min(0).max(50_000).optional(),
 }).strict().transform((data, ctx) => {
   const surcharge = data.surcharge ?? data.weekendSurcharge;
   if (surcharge === undefined) {

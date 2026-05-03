@@ -7,6 +7,9 @@ export async function persistUploadedImage(file: Express.Multer.File): Promise<s
   const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
 
   if (!cloudName || !uploadPreset) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Cloud image storage is not configured");
+    }
     logger.warn("upload.local_fallback", {
       filename: file.filename,
       reason: "Cloudinary env vars are not configured",

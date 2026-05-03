@@ -145,6 +145,44 @@ function AnalyticsPanel({ turf }: { turf: Turf }) {
   );
 }
 
+function CalendarPanel({ turf }: { turf: Turf }) {
+  const start = format(today, "yyyy-MM-dd");
+  const end = format(addDays(today, 6), "yyyy-MM-dd");
+  const { data: days = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/owner/turfs", turf.id, "calendar", start, end],
+    queryFn: async () => {
+      const res = await fetch(`/api/owner/turfs/${turf.id}/calendar?start=${start}&end=${end}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch calendar");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <div className="mt-4 h-28 rounded-xl bg-secondary animate-pulse" />;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {days.map((day: any) => {
+        const booked = day.bookings.filter((booking: any) => booking.status !== "cancelled").length;
+        const held = day.holds.length;
+        const open = day.slots.filter((slot: TimeSlot) => !slot.isBooked && !slot.isBlocked).length;
+        return (
+          <div key={day.date} className="bg-secondary rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-foreground">{day.date}</p>
+              <p className="text-xs text-muted-foreground">{day.slots.length} slots</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+              <div className="rounded-lg bg-background p-2"><p className="text-primary font-bold">{open}</p><p className="text-[10px] text-muted-foreground">Open</p></div>
+              <div className="rounded-lg bg-background p-2"><p className="text-yellow-500 font-bold">{held}</p><p className="text-[10px] text-muted-foreground">Held</p></div>
+              <div className="rounded-lg bg-background p-2"><p className="text-green-500 font-bold">{booked}</p><p className="text-[10px] text-muted-foreground">Booked</p></div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Edit Turf Panel ─────────────────────────────────────────────────────────────
 function EditTurfPanel({ turf, onSuccess }: { turf: Turf; onSuccess: () => void }) {
   const { toast } = useToast();
@@ -522,9 +560,9 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
           const isAvailable = !isBooked && !isBlocked;
           return (
             <div key={slot.id} data-testid={`owner-slot-${slot.id}`}
-              onClick={() => { if (!isBooked && !isPending) handleSlotToggle(slot); }}
+              onClick={() => { if (user?.role === "turf_owner" && !isBooked && !isPending) handleSlotToggle(slot); }}
               className={cn("group relative rounded-lg p-3 text-center transition-all duration-150",
-                isBooked ? "bg-secondary opacity-50 cursor-not-allowed" : "cursor-pointer",
+                isBooked || user?.role !== "turf_owner" ? "bg-secondary opacity-50 cursor-not-allowed" : "cursor-pointer",
                 isBlocked && "bg-destructive/15 border border-destructive/40 hover:bg-destructive/25",
                 isAvailable && "bg-primary/10 border border-primary/30 hover:bg-primary/20",
               )}>
@@ -568,7 +606,9 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
         <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-destructive/20 border border-destructive/40" /><span className="text-muted-foreground">{blockedCount} Blocked</span></div>
         <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-secondary" /><span className="text-muted-foreground">{bookedCount} Booked</span></div>
       </div>
-      <p className="text-xs text-muted-foreground">Tap an open slot to block it. Tap a blocked slot to unblock.</p>
+      <p className="text-xs text-muted-foreground">
+        {user?.role === "turf_owner" ? "Tap an open slot to block it. Tap a blocked slot to unblock." : "Staff can view slot status. Owners manage blocking and pricing."}
+      </p>
       {isLoading ? (
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: 9 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-secondary animate-pulse" />)}
@@ -695,6 +735,7 @@ function printBookingsPDF(bookings: any[], turfName: string) {
 
 // ── Bookings Panel ─────────────────────────────────────────────────────────────
 function BookingsPanel({ turf }: { turf: Turf }) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -764,7 +805,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         <span>Total: <span className="text-foreground font-semibold">₹{b.totalAmount}</span></span>
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
-      {b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (
+      {user?.role === "turf_owner" && b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (
         <div className="flex gap-2">
           {b.balanceAmount > 0 && (
             <Button variant="outline" size="sm" data-testid={`button-pay-${b.id}`}
@@ -1321,7 +1362,7 @@ function StaffMembersPanel() {
 }
 
 // ── Main TurfOwnerHome ─────────────────────────────────────────────────────────
-type TabType = "slots" | "bookings" | "analytics" | "edit" | "reviews" | "staff";
+type TabType = "calendar" | "slots" | "bookings" | "analytics" | "edit" | "reviews" | "staff";
 
 export default function TurfStaffHome() {
   useSEO({ title: "Owner Dashboard | Quick Turf", description: "Manage your turf bookings, pricing, and analytics." });
@@ -1356,6 +1397,7 @@ export default function TurfStaffHome() {
   ];
 
   const staffTabs: { key: TabType; label: string; icon: any }[] = [
+    { key: "calendar", label: "Calendar", icon: CalendarDays },
     { key: "slots", label: "Slots", icon: CalendarDays },
     { key: "bookings", label: "Bookings", icon: BookOpen },
   ];
@@ -1487,7 +1529,7 @@ export default function TurfStaffHome() {
                 {/* Approved Turfs */}
                 {approvedTurfs.map((turf: any) => {
                   const isExpanded = expandedTurfId === turf.id;
-                  const activeTab = activeTabs[turf.id] ?? "slots";
+                  const activeTab = activeTabs[turf.id] ?? "calendar";
                   return (
                     <div key={turf.id} data-testid={`card-turf-${turf.id}`} className="bg-card border border-border rounded-xl overflow-hidden">
                       {turf.imageUrl && <img src={turf.imageUrl} alt={turf.name} className="w-full h-36 object-cover" />}
@@ -1531,6 +1573,7 @@ export default function TurfStaffHome() {
                                 </button>
                               ))}
                             </div>
+                            {activeTab === "calendar" && <CalendarPanel turf={turf} />}
                             {activeTab === "slots" && <SlotManagementPanel turf={turf} />}
                             {activeTab === "bookings" && <BookingsPanel turf={turf} />}
                             {activeTab === "analytics" && <AnalyticsPanel turf={turf} />}

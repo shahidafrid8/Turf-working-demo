@@ -89,7 +89,7 @@ export const bookings = pgTable("bookings", {
   paidAmount: integer("paid_amount").notNull(),
   balanceAmount: integer("balance_amount").notNull(),
   paymentMethod: text("payment_method").notNull(),
-  status: text("status").notNull().default("confirmed"),
+  status: text("status").notNull().default("pending_payment"),
   bookingCode: text("booking_code").notNull(),
   userId: text("user_id"),
   userName: text("user_name"),
@@ -98,11 +98,65 @@ export const bookings = pgTable("bookings", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   turfDateIdx: index("bookings_turf_date_idx").on(table.turfId, table.date),
+  userDateIdx: index("bookings_user_date_idx").on(table.userId, table.date),
+  bookingCodeUnique: uniqueIndex("bookings_booking_code_unique").on(table.bookingCode),
 }));
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
+
+export const slotHolds = pgTable("slot_holds", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  turfId: varchar("turf_id").notNull(),
+  turfName: text("turf_name").notNull(),
+  turfAddress: text("turf_address").notNull(),
+  date: text("date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  duration: integer("duration").notNull(),
+  totalAmount: integer("total_amount").notNull(),
+  paidAmount: integer("paid_amount").notNull(),
+  balanceAmount: integer("balance_amount").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  bookingCode: text("booking_code").notNull(),
+  slotIds: text("slot_ids").array().notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull().default("active"),
+  userId: text("user_id"),
+  userName: text("user_name"),
+  userPhone: text("user_phone"),
+  providerReference: text("provider_reference"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  idempotencyUnique: uniqueIndex("slot_holds_idempotency_unique").on(table.idempotencyKey),
+  activeLookupIdx: index("slot_holds_active_lookup_idx").on(table.turfId, table.date, table.status, table.expiresAt),
+}));
+
+export const insertSlotHoldSchema = createInsertSchema(slotHolds).omit({ id: true, createdAt: true });
+export type InsertSlotHold = z.infer<typeof insertSlotHoldSchema>;
+export type SlotHold = typeof slotHolds.$inferSelect;
+
+export const pricingRules = pgTable("pricing_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  turfId: varchar("turf_id").notNull(),
+  name: text("name").notNull(),
+  ruleType: text("rule_type").notNull(),
+  adjustmentType: text("adjustment_type").notNull().default("fixed"),
+  adjustmentValue: integer("adjustment_value").notNull(),
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  daysOfWeek: integer("days_of_week").array(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ id: true, createdAt: true });
+export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
+export type PricingRule = typeof pricingRules.$inferSelect;
 
 // App Feedback model
 export const appFeedback = pgTable("app_feedback", {

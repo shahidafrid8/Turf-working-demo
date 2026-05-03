@@ -8,6 +8,27 @@
       "when": 1776248131100,
       "tag": "0000_gray_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777797310000,
+      "tag": "0001_production_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777827600000,
+      "tag": "0002_reliability_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777831200000,
+      "tag": "0003_payment_holds_pricing",
+      "breakpoints": true
     }
   ]
 }

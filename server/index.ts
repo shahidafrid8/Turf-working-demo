@@ -10,7 +10,9 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { createSessionStore } from "./sessionStore";
 import { captureError, logger } from "./logger";
+import { assertProductionConfig } from "./productionGuards";
 
+assertProductionConfig();
 const app = express();
 const httpServer = createServer(app);
 
@@ -19,6 +21,18 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+declare module "express-serve-static-core" {
+  interface Request {
+    requestId: string;
+  }
+}
+
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  res.setHeader("x-request-id", req.requestId);
+  next();
+});
 
 app.use(
   express.json({
@@ -133,8 +147,11 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     // Log the error but DON'T re-throw — that would crash the server
-    captureError(err, { status, route: _req.path });
-    res.status(status).json({ message });
+    captureError(err, { status, route: _req.path, requestId: _req.requestId });
+    res.status(status).json({
+      error: status >= 500 ? "Something went wrong. Please try again." : message,
+      requestId: _req.requestId,
+    });
   });
 
   if (process.env.NODE_ENV === "production") {

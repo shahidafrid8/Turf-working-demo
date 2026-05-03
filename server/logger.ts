@@ -7,6 +7,7 @@ function write(level: LogLevel, event: string, fields: LogFields = {}) {
     level,
     event,
     time: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
     ...fields,
   };
 

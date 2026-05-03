@@ -27,6 +27,10 @@ export function registerBookingRoutes(app: Express) {
   app.post("/api/bookings", async (req, res) => {
     try {
       const validatedData = bookingRequestSchema.parse(req.body);
+      const turf = await storage.getTurf(validatedData.turfId);
+      if (!turf || !turf.isAvailable) {
+        return res.status(404).json({ error: "Turf is not available for booking" }) as any;
+      }
 
       if (req.session.userId) {
         const user = await storage.getUser(req.session.userId);
@@ -59,6 +63,8 @@ export function registerBookingRoutes(app: Express) {
         turfId: booking.turfId,
         userId: booking.userId,
         slotCount: requiredSlots.length,
+        paidAmount: booking.paidAmount,
+        balanceAmount: booking.balanceAmount,
       });
       res.status(201).json(booking);
     } catch (err: any) {

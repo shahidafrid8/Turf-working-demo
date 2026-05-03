@@ -10,8 +10,11 @@ export async function validateUploadedImage(file: Express.Multer.File): Promise<
   const header = await fs.readFile(file.path).then((buf) => buf.subarray(0, 8));
   const isPng = header.subarray(0, signatures.png.length).equals(signatures.png);
   const isJpg = header.subarray(0, signatures.jpg.length).equals(signatures.jpg);
+  const mimetypeMatchesSignature =
+    (isPng && file.mimetype === "image/png") ||
+    (isJpg && ["image/jpeg", "image/jpg"].includes(file.mimetype));
 
-  if (!isPng && !isJpg) {
+  if ((!isPng && !isJpg) || !mimetypeMatchesSignature) {
     await fs.unlink(file.path).catch(() => undefined);
     throw new Error("Uploaded file content is not a valid PNG or JPEG image");
   }

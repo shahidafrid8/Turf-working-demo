@@ -29,13 +29,19 @@ CLOUDINARY_UPLOAD_PRESET=optional-unsigned-upload-preset
 npm run db:migrate
 ```
 
-4. Start development server:
+4. Seed an empty database when needed:
+
+```bash
+npm run db:seed
+```
+
+5. Start development server:
 
 ```bash
 npm run dev
 ```
 
-5. Type-check before deploying:
+6. Type-check before deploying:
 
 ```bash
 npm run check
@@ -66,11 +72,21 @@ npm run db:generate
 npm run db:migrate
 ```
 
-The production hardening migration adds:
+The production hardening migrations add:
 
 - unique slot identity by `turf_id`, `date`, and `start_time`
 - booking/date lookup indexes
+- booking-code uniqueness and user/date lookup indexes
+- database checks for booking amount math, durations, statuses, payment methods, prices, and user roles
 - PostgreSQL session table
+
+Create a database backup before migrations:
+
+```bash
+npm run db:backup
+```
+
+`db:backup` writes a custom-format dump under `backups/` and requires `pg_dump` in your PATH.
 
 ## Production Notes
 
@@ -81,6 +97,8 @@ Sessions are stored in PostgreSQL through `connect-pg-simple`, not memory.
 Uploads validate both MIME type and actual PNG/JPEG file signatures. For a full production deployment, move uploaded files to Cloudinary, S3, or another object store and save only the returned URL.
 
 Structured JSON logs are emitted for server activity, booking success/failure, and captured errors. Connect these logs to your platform logging or an error monitor such as Sentry.
+
+Production startup fails if `DATABASE_URL`, `SESSION_SECRET`, `ADMIN_KEY`, `CLOUDINARY_CLOUD_NAME`, or `CLOUDINARY_UPLOAD_PRESET` is missing. Keep staging and production on separate database URLs, secrets, admin keys, and Cloudinary presets; start from `.env.staging.example` and `.env.production.example`.
 
 ## Code Organization
 

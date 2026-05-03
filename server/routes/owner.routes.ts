@@ -4,6 +4,7 @@ import { logger } from "../logger";
 import {
   hashPassword,
   ownerTurfProfileSchema,
+  pricingRuleSchema,
   resolveOwnerIdForContext,
   safeUserResponse,
   sanitizeText,
@@ -12,6 +13,19 @@ import {
   turfSubmitSchema,
   weekendSurchargeSchema,
 } from "./shared";
+
+async function requireOwnerOnly(req: Request, res: Response): Promise<boolean> {
+  if (!req.session.userId) {
+    res.status(401).json({ error: "Not authenticated" });
+    return false;
+  }
+  const user = await storage.getUser(req.session.userId);
+  if (!user || user.role !== "turf_owner") {
+    res.status(403).json({ error: "Only turf owners can perform this action" });
+    return false;
+  }
+  return true;
+}
 
 export function registerOwnerRoutes(app: Express) {
   app.post("/api/owner/turf/submit", async (req: Request, res: Response) => {
@@ -90,7 +104,51 @@ export function registerOwnerRoutes(app: Express) {
     res.json(await storage.getTimeSlots(req.params.turfId, req.params.date));
   });
 
+  app.get("/api/owner/turfs/:turfId/calendar", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    if (!turfs.find(t => t.id === req.params.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
+    const start = typeof req.query.start === "string" ? req.query.start : new Date().toISOString().split("T")[0];
+    const end = typeof req.query.end === "string" ? req.query.end : start;
+    res.json(await storage.getOwnerCalendar(req.params.turfId, start, end));
+  });
+
+  app.get("/api/owner/turfs/:turfId/pricing-rules", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    if (!turfs.find(t => t.id === req.params.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
+    res.json(await storage.getPricingRulesByTurf(req.params.turfId));
+  });
+
+  app.post("/api/owner/turfs/:turfId/pricing-rules", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId!);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    if (!turfs.find(t => t.id === req.params.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
+    const parsed = pricingRuleSchema.safeParse({ ...req.body, turfId: req.params.turfId });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid pricing rule" }) as any;
+    res.status(201).json(await storage.createPricingRule(parsed.data));
+  });
+
+  app.patch("/api/owner/pricing-rules/:id", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
+    const rule = await storage.getPricingRule(req.params.id);
+    if (!rule) return res.status(404).json({ error: "Pricing rule not found" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId!);
+    const turfs = ownerId ? await storage.getTurfsByOwnerId(ownerId) : [];
+    if (!turfs.some(t => t.id === rule.turfId)) return res.status(403).json({ error: "Not your pricing rule" }) as any;
+    const active = Boolean(req.body?.isActive);
+    const updated = await storage.setPricingRuleActive(req.params.id, active);
+    res.json(updated);
+  });
+
   app.post("/api/owner/slots/:slotId/block", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const ownerId = await resolveOwnerIdForContext(req.session.userId);
     if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
@@ -103,6 +161,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.post("/api/owner/slots/:slotId/unblock", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const ownerId = await resolveOwnerIdForContext(req.session.userId);
     if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
@@ -114,6 +173,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.post("/api/owner/slots/:slotId/price", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const parsedPrice = slotPriceSchema.safeParse(req.body);
     if (!parsedPrice.success) return res.status(400).json({ error: parsedPrice.error.errors[0]?.message || "Invalid data" }) as any;
@@ -145,6 +205,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.post("/api/owner/bookings/:id/pay", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const ownerId = await resolveOwnerIdForContext(req.session.userId);
     if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
@@ -158,6 +219,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.post("/api/owner/bookings/:id/cancel", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const ownerId = await resolveOwnerIdForContext(req.session.userId);
     if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
@@ -181,6 +243,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.patch("/api/owner/turf/profile", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const owner = await storage.getUser(req.session.userId);
     if (!owner || owner.role !== "turf_owner") return res.status(403).json({ error: "Not a turf owner" }) as any;
@@ -255,6 +318,7 @@ export function registerOwnerRoutes(app: Express) {
   });
 
   app.patch("/api/owner/settings/weekend-surcharge", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const turfs = await storage.getTurfsByOwnerId(req.session.userId);
     if (turfs.length === 0) return res.status(404).json({ error: "No turf found" }) as any;

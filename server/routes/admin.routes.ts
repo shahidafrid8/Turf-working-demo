@@ -66,7 +66,15 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/pending-turf-listings", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
-    res.json([]);
+    const owners = await storage.getPendingTurfs();
+    res.json(owners.map(owner => ({
+      owner: safeUserResponse(owner),
+      workflow: {
+        addressVerification: owner.turfAddress && owner.turfPincode ? "ready_for_review" : "missing",
+        imageModeration: owner.turfImageUrls && owner.turfImageUrls.length > 0 ? "ready_for_review" : "missing",
+        documents: owner.turfImageUrls && owner.turfImageUrls.length > 0 ? "uploaded_images_available" : "missing",
+      },
+    })));
   });
 
   app.post("/api/admin/turfs/:turfId/approve", async (req: Request, res: Response) => {
@@ -114,6 +122,28 @@ export function registerAdminRoutes(app: Express) {
     const totalCommission = payoutData.reduce((s, p) => s + p.commission, 0);
     const totalNetPayout = payoutData.reduce((s, p) => s + p.netPayout, 0);
     res.json({ totalGrossRevenue, totalCommission, totalNetPayout, ownerPayouts: payoutData });
+  });
+
+  app.get("/api/admin/payouts.csv", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const payoutData = await storage.getPayoutData();
+    const rows = [
+      ["ownerId", "ownerName", "turfId", "turfName", "grossRevenue", "commission", "netPayout", "bookingCount"],
+      ...payoutData.map((p) => [
+        p.ownerId,
+        p.ownerName,
+        p.turfId,
+        p.turfName,
+        String(p.grossRevenue),
+        String(p.commission),
+        String(p.netPayout),
+        String(p.bookingCount),
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition", "attachment; filename=quickturf-payouts.csv");
+    res.send(csv);
   });
 
   app.get("/api/admin/search", async (req: Request, res: Response) => {

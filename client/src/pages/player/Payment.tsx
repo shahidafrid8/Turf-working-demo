@@ -48,9 +48,14 @@ export default function Payment() {
 
   const createBookingMutation = useMutation({
     mutationFn: async (bookingData: InsertBooking) => {
-      const response = await apiRequest("POST", "/api/bookings", bookingData);
-      const booking = await response.json();
-      return booking as Booking;
+      const idempotencyKey = crypto.randomUUID();
+      const holdResponse = await apiRequest("POST", "/api/payment-holds", {
+        ...bookingData,
+        idempotencyKey,
+      });
+      const hold = await holdResponse.json() as { holdId: string; expiresAt: string };
+      const confirmationResponse = await apiRequest("POST", `/api/payments/mock-confirm/${hold.holdId}`);
+      return await confirmationResponse.json() as Booking;
     },
     onSuccess: (booking) => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/my-bookings"] });
@@ -61,8 +66,8 @@ export default function Payment() {
     onError: (error: Error) => {
       toast({
         title: "Booking Failed",
-        description: error.message.includes("409")
-          ? "This time slot is already booked. Please choose a different slot."
+        description: error.name === "409"
+          ? "This time slot is booked or temporarily held. Please choose another slot."
           : error.message,
         variant: "destructive",
       });
@@ -91,7 +96,7 @@ export default function Payment() {
       paidAmount: payNowAmount,
       balanceAmount: payAtVenueAmount,
       paymentMethod: selectedPaymentMethod,
-      status: "confirmed",
+      status: "pending_payment",
       bookingCode,
     };
 
