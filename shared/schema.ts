@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -66,7 +66,10 @@ export const timeSlots = pgTable("time_slots", {
   period: text("period").notNull(), // morning, afternoon, evening
   isBooked: boolean("is_booked").notNull().default(false),
   isBlocked: boolean("is_blocked").notNull().default(false),
-});
+}, (table) => ({
+  turfDateStartUnique: uniqueIndex("time_slots_turf_date_start_unique").on(table.turfId, table.date, table.startTime),
+  availabilityIdx: index("time_slots_availability_idx").on(table.turfId, table.date, table.isBooked, table.isBlocked),
+}));
 
 export const insertTimeSlotSchema = createInsertSchema(timeSlots).omit({ id: true });
 export type InsertTimeSlot = z.infer<typeof insertTimeSlotSchema>;
@@ -93,7 +96,9 @@ export const bookings = pgTable("bookings", {
   userPhone: text("user_phone"),
   reviewPromptShown: boolean("review_prompt_shown").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  turfDateIdx: index("bookings_turf_date_idx").on(table.turfId, table.date),
+}));
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;

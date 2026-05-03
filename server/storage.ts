@@ -4,11 +4,18 @@ import {
   type TimeSlot, type InsertTimeSlot,
   type Booking, type InsertBooking,
   type AppFeedback, type InsertAppFeedback,
-  type TurfReview
+  type TurfReview,
+  users as usersTable,
+  turfs as turfsTable,
+  timeSlots as timeSlotsTable,
+  bookings as bookingsTable,
+  appFeedback as appFeedbackTable,
+  turfReviews as turfReviewsTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { addDays, format, startOfToday } from "date-fns";
 import bcrypt from "bcrypt";
+import { db, pool } from "./db";
 
 export interface IStorage {
   // Users
@@ -71,6 +78,7 @@ export interface IStorage {
   getBookingsByTurfId(turfId: string): Promise<Booking[]>;
   getBookingsByUserId(userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
+  createBookingWithSlotLock(booking: InsertBooking, slotIds: string[]): Promise<Booking>;
   markBookingPaid(id: string): Promise<Booking | undefined>;
   cancelBooking(id: string): Promise<Booking | undefined>;
   markReviewPromptShown(bookingId: string): Promise<void>;
@@ -144,6 +152,9 @@ export class MemStorage implements IStorage {
   private appFeedbacks: Map<string, AppFeedback>;
   private turfReviews: Map<string, TurfReview>;
   private locations: string[];
+  public readonly isDatabaseEnabled: boolean;
+  public readonly readyPromise: Promise<void>;
+  private persistQueue: Promise<void>;
 
   constructor() {
     this.users = new Map();
@@ -161,7 +172,7 @@ export class MemStorage implements IStorage {
       id: "seed-player-shahid", username: "shahid", fullName: "Shahid Afrid",
       email: "shahid@gmail.com", phoneNumber: "1234567890",
       password: bcrypt.hashSync("shahid123", 10), dateOfBirth: "2006-06-25",
-      role: "player", isBanned: false, banReason: null,
+      role: "player", managerId: null, isBanned: false, banReason: null,
       ownerStatus: null, turfStatus: null, turfName: null, turfLocation: null,
       turfAddress: null, turfPincode: null, turfImageUrls: null,
       turfLength: null, turfWidth: null, profileImageUrl: null,
@@ -172,7 +183,7 @@ export class MemStorage implements IStorage {
       id: "seed-player-shamanth", username: "shamanth", fullName: "Shamanth",
       email: "shamanth@gmail.com", phoneNumber: "0987654322",
       password: bcrypt.hashSync("shamanth123", 10), dateOfBirth: "2000-01-01",
-      role: "player", isBanned: false, banReason: null,
+      role: "player", managerId: null, isBanned: false, banReason: null,
       ownerStatus: null, turfStatus: null, turfName: null, turfLocation: null,
       turfAddress: null, turfPincode: null, turfImageUrls: null,
       turfLength: null, turfWidth: null, profileImageUrl: null,
@@ -191,7 +202,7 @@ export class MemStorage implements IStorage {
       id: "seed-owner-tharak", username: "tharak", fullName: "Tharakesh",
       email: "tharak@gmail.com", phoneNumber: "0987654321",
       password: bcrypt.hashSync("tharak123", 10), dateOfBirth: "2005-02-04",
-      role: "turf_owner", isBanned: false, banReason: null,
+      role: "turf_owner", managerId: null, isBanned: false, banReason: null,
       ownerStatus: "account_approved", turfStatus: "turf_approved",
       turfName: "Tharak's Turf", turfLocation: "Nandyal",
       turfAddress: "balaji complex, Nandyal, 518501", turfPincode: "518501",
@@ -233,6 +244,86 @@ export class MemStorage implements IStorage {
         });
       }
     });
+
+    this.isDatabaseEnabled = Boolean(process.env.DATABASE_URL) && Boolean(db) && Boolean(pool);
+    this.persistQueue = Promise.resolve();
+    this.readyPromise = this.isDatabaseEnabled
+      ? this.initializeFromDatabase()
+      : Promise.resolve();
+  }
+
+  private async initializeFromDatabase(): Promise<void> {
+    if (!db) return;
+
+    try {
+      const [dbUsers, dbTurfs, dbSlots, dbBookings, dbFeedbacks, dbReviews] = await Promise.all([
+        db.select().from(usersTable),
+        db.select().from(turfsTable),
+        db.select().from(timeSlotsTable),
+        db.select().from(bookingsTable),
+        db.select().from(appFeedbackTable),
+        db.select().from(turfReviewsTable),
+      ]);
+
+      const hasExistingData =
+        dbUsers.length > 0 ||
+        dbTurfs.length > 0 ||
+        dbSlots.length > 0 ||
+        dbBookings.length > 0 ||
+        dbFeedbacks.length > 0 ||
+        dbReviews.length > 0;
+
+      if (!hasExistingData) {
+        await this.persistToDatabase();
+        return;
+      }
+
+      this.users = new Map(dbUsers.map((u) => [u.id, u]));
+      this.turfs = new Map(dbTurfs.map((t) => [t.id, t]));
+      this.timeSlots = new Map(dbSlots.map((s) => [s.id, s]));
+      this.bookings = new Map(dbBookings.map((b) => [b.id, b]));
+      this.appFeedbacks = new Map(dbFeedbacks.map((f) => [f.userId, f]));
+      this.turfReviews = new Map(dbReviews.map((r) => [r.id, r]));
+    } catch (error) {
+      console.error("[storage] Failed loading from database; falling back to in-memory seed data", error);
+    }
+  }
+
+  public async persistToDatabase(): Promise<void> {
+    if (!this.isDatabaseEnabled || !db) return;
+
+    const usersValues = Array.from(this.users.values());
+    const turfsValues = Array.from(this.turfs.values());
+    const slotValues = Array.from(this.timeSlots.values());
+    const bookingValues = Array.from(this.bookings.values());
+    const feedbackValues = Array.from(this.appFeedbacks.values());
+    const reviewValues = Array.from(this.turfReviews.values());
+
+    await db.delete(turfReviewsTable);
+    await db.delete(appFeedbackTable);
+    await db.delete(bookingsTable);
+    await db.delete(timeSlotsTable);
+    await db.delete(turfsTable);
+    await db.delete(usersTable);
+
+    if (usersValues.length) await db.insert(usersTable).values(usersValues);
+    if (turfsValues.length) await db.insert(turfsTable).values(turfsValues);
+    if (slotValues.length) await db.insert(timeSlotsTable).values(slotValues);
+    if (bookingValues.length) await db.insert(bookingsTable).values(bookingValues);
+    if (feedbackValues.length) await db.insert(appFeedbackTable).values(feedbackValues);
+    if (reviewValues.length) await db.insert(turfReviewsTable).values(reviewValues);
+  }
+
+  public queuePersist(): Promise<void> {
+    if (!this.isDatabaseEnabled) return Promise.resolve();
+
+    this.persistQueue = this.persistQueue
+      .then(() => this.persistToDatabase())
+      .catch((error) => {
+        console.error("[storage] Failed to persist data to database", error);
+      });
+
+    return this.persistQueue;
   }
 
 
@@ -256,6 +347,8 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const user: User = {
       role: "player",
+      isBanned: false,
+      banReason: null,
       ownerStatus: null,
       turfName: null,
       turfLocation: null,
@@ -509,6 +602,121 @@ export class MemStorage implements IStorage {
     return bookingEntity;
   }
 
+  async createBookingWithSlotLock(insertBooking: InsertBooking, slotIds: string[]): Promise<Booking> {
+    if (slotIds.length === 0) {
+      throw Object.assign(new Error("No slots selected"), { status: 400 });
+    }
+
+    const id = randomUUID();
+    const bookingEntity: Booking = {
+      status: "confirmed",
+      userId: null,
+      userName: null,
+      userPhone: null,
+      reviewPromptShown: false,
+      ...insertBooking,
+      id,
+      createdAt: new Date(),
+    };
+
+    if (!this.isDatabaseEnabled) {
+      const slots = slotIds.map(slotId => this.timeSlots.get(slotId));
+      if (slots.some(slot => !slot || slot.isBooked || slot.isBlocked)) {
+        throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
+      }
+      for (const slot of slots) {
+        if (slot) this.timeSlots.set(slot.id, { ...slot, isBooked: true });
+      }
+      this.bookings.set(bookingEntity.id, bookingEntity);
+      return bookingEntity;
+    }
+
+    if (!pool) {
+      throw Object.assign(new Error("Database is not configured"), { status: 500 });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const locked = await client.query(
+        `SELECT id, is_booked, is_blocked
+         FROM time_slots
+         WHERE id = ANY($1::varchar[])
+         FOR UPDATE`,
+        [slotIds],
+      );
+
+      if (
+        locked.rowCount !== slotIds.length ||
+        locked.rows.some((row) => row.is_booked || row.is_blocked)
+      ) {
+        await client.query("ROLLBACK");
+        throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
+      }
+
+      const updated = await client.query(
+        `UPDATE time_slots
+         SET is_booked = true
+         WHERE id = ANY($1::varchar[]) AND is_booked = false AND is_blocked = false`,
+        [slotIds],
+      );
+
+      if (updated.rowCount !== slotIds.length) {
+        await client.query("ROLLBACK");
+        throw Object.assign(new Error("One or more selected slots are no longer available"), { status: 409 });
+      }
+
+      await client.query(
+        `INSERT INTO bookings (
+          id, turf_id, turf_name, turf_address, date, start_time, end_time,
+          duration, total_amount, paid_amount, balance_amount, payment_method,
+          status, booking_code, user_id, user_name, user_phone, review_prompt_shown, created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12,
+          $13, $14, $15, $16, $17, $18, $19
+        )`,
+        [
+          bookingEntity.id,
+          bookingEntity.turfId,
+          bookingEntity.turfName,
+          bookingEntity.turfAddress,
+          bookingEntity.date,
+          bookingEntity.startTime,
+          bookingEntity.endTime,
+          bookingEntity.duration,
+          bookingEntity.totalAmount,
+          bookingEntity.paidAmount,
+          bookingEntity.balanceAmount,
+          bookingEntity.paymentMethod,
+          bookingEntity.status,
+          bookingEntity.bookingCode,
+          bookingEntity.userId,
+          bookingEntity.userName,
+          bookingEntity.userPhone,
+          bookingEntity.reviewPromptShown,
+          bookingEntity.createdAt,
+        ],
+      );
+
+      await client.query("COMMIT");
+
+      for (const slotId of slotIds) {
+        const slot = this.timeSlots.get(slotId);
+        if (slot) this.timeSlots.set(slotId, { ...slot, isBooked: true });
+      }
+      this.bookings.set(bookingEntity.id, bookingEntity);
+
+      return bookingEntity;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async markBookingPaid(id: string): Promise<Booking | undefined> {
     const booking = this.bookings.get(id);
     if (booking) {
@@ -694,4 +902,62 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+const mutatingMethods = new Set<keyof IStorage>([
+  "createUser",
+  "updateUserProfile",
+  "updateUserPassword",
+  "updateOwnerStatus",
+  "updateTurfStatus",
+  "submitTurf",
+  "deleteUser",
+  "banUser",
+  "unbanUser",
+  "addLocation",
+  "removeLocation",
+  "createTurf",
+  "updateWeekendSurcharge",
+  "createTimeSlot",
+  "bookTimeSlot",
+  "blockTimeSlot",
+  "unblockTimeSlot",
+  "updateTimeSlotPrice",
+  "updateTimeSlotPriceByStartTime",
+  "createBooking",
+  "markBookingPaid",
+  "cancelBooking",
+  "markReviewPromptShown",
+  "updateTurfDetails",
+  "unbookTimeSlot",
+  "createReview",
+  "upsertAppFeedback",
+]);
+
+const baseStorage = new MemStorage();
+
+type StorageWithRuntime = IStorage & {
+  readyPromise: Promise<void>;
+  isDatabaseEnabled: boolean;
+  queuePersist: () => Promise<void>;
+};
+
+export const storage: IStorage = new Proxy(baseStorage as StorageWithRuntime, {
+  get(target, prop, receiver) {
+    const original = Reflect.get(target, prop, receiver);
+    if (typeof original !== "function") return original;
+
+    return async (...args: unknown[]) => {
+      await target.readyPromise;
+      const result = await original.apply(target, args);
+
+      if (
+        target.isDatabaseEnabled &&
+        typeof prop === "string" &&
+        mutatingMethods.has(prop as keyof IStorage)
+      ) {
+        await target.queuePersist();
+      }
+
+      return result;
+    };
+  },
+});

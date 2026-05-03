@@ -1360,6 +1360,8 @@ export default function TurfOwnerHome() {
     { key: "bookings", label: "Bookings", icon: BookOpen },
   ];
 
+  if (!user) return null;
+
   const tabs = user.role === "turf_staff" ? staffTabs : baseTabs;
 
   const ownerSpecificPanels = user.role === "turf_owner" && (
@@ -1371,8 +1373,6 @@ export default function TurfOwnerHome() {
       <StaffMembersPanel />
     </div>
   );
-
-  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">

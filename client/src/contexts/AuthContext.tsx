@@ -9,7 +9,7 @@ export interface AuthUser {
   phoneNumber: string;
   dateOfBirth: string | null;
   profileImageUrl: string | null;
-  role: "player" | "turf_owner";
+  role: "player" | "turf_owner" | "turf_staff";
   ownerStatus?: string | null;
   turfStatus?: string | null;
   turfName?: string | null;

@@ -8,6 +8,8 @@ import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { createSessionStore } from "./sessionStore";
+import { captureError, logger } from "./logger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -73,6 +75,7 @@ const sessionSecret = process.env.SESSION_SECRET || (() => {
 
 app.use(
   session({
+    store: createSessionStore(),
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -93,7 +96,7 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info("server.log", { source, message, formattedTime });
 }
 
 app.use((req, res, next) => {
@@ -130,7 +133,7 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     // Log the error but DON'T re-throw — that would crash the server
-    console.error(`[ERROR] ${status}: ${message}`, err.stack || "");
+    captureError(err, { status, route: _req.path });
     res.status(status).json({ message });
   });
 
