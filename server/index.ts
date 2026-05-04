@@ -22,6 +22,10 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
+app.get("/healthz", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
