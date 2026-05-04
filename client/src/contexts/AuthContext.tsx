@@ -48,6 +48,7 @@ interface AuthContextValue {
 
 export interface PlayerRegisterData {
   username: string;
+  fullName?: string;
   email: string;
   phoneNumber: string;
   password: string;

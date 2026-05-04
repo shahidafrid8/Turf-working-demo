@@ -54,6 +54,7 @@ export const passwordSchema = z
 
 export const baseRegisterSchema = z.object({
   username: z.string().regex(usernameRegex, "Username: letters, numbers, underscores, periods only - can't start or end with a period").max(30),
+  fullName: z.string().min(2, "Full name must be at least 2 characters").max(80).optional(),
   email: z.string().email("Enter a valid email address").refine(val => val.toLowerCase().endsWith("@gmail.com"), "Only Gmail addresses (@gmail.com) are accepted"),
   phoneNumber: z.string().regex(/^\d{10}$/, "Phone number must be exactly 10 digits"),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
@@ -113,7 +114,7 @@ const bookingRequestBaseSchema = insertBookingSchema.extend({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
-  duration: z.number().int().positive().max(5 * 60).refine((value) => value % 60 === 0, "Duration must be in full-hour increments"),
+  duration: z.number().int().positive().max(5 * 60).refine((value) => value % 30 === 0, "Duration must be in 30-minute increments"),
   totalAmount: z.number().int().positive(),
   paidAmount: z.number().int().nonnegative(),
   balanceAmount: z.number().int().nonnegative(),

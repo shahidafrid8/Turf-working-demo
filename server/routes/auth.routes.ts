@@ -70,6 +70,7 @@ export function registerAuthRoutes(app: Express) {
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
       const data = baseRegisterSchema.parse(req.body);
+      const fullName = data.fullName ? sanitizeText(data.fullName) : undefined;
 
       if (await storage.getUserByUsername(data.username)) return res.status(409).json({ error: "Username already taken" }) as any;
       if (await storage.getUserByEmail(data.email)) return res.status(409).json({ error: "Gmail address already registered" }) as any;
@@ -77,6 +78,7 @@ export function registerAuthRoutes(app: Express) {
 
       const user = await storage.createUser({
         username: sanitizeText(data.username),
+        fullName,
         email: data.email.toLowerCase(),
         phoneNumber: data.phoneNumber,
         password: await hashPassword(data.password),

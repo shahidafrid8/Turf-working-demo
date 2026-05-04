@@ -57,6 +57,7 @@ app.use(express.urlencoded({ extended: false }));
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: false, // Allow inline scripts from Vite in dev
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }, // Needed for Google sign-in popup
   crossOriginEmbedderPolicy: false,
 }));
 

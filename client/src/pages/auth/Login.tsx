@@ -76,7 +76,10 @@ export default function Login() {
             try {
               const result = await loginWithGoogle(credential);
               if (result.needsRegistration) {
-                navigate(`/register?email=${encodeURIComponent(result.email)}`);
+                const params = new URLSearchParams();
+                params.set("email", result.email);
+                if (result.fullName) params.set("fullName", result.fullName);
+                navigate(`/register?${params.toString()}`);
               } else {
                 navigate("/home");
               }

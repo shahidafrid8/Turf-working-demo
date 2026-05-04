@@ -1,13 +1,13 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
   User, HelpCircle, LogOut, ChevronRight, Bell,
   Shield, Star, Mail, Phone, Lock, Eye, EyeOff,
-  Check, ChevronLeft, Camera, Calendar
+  Check, ChevronLeft, Calendar
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,8 +33,6 @@ export default function Profile() {
   const [, navigate] = useLocation();
   const [view, setView] = useState<ProfileView>("main");
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: myBookings } = useQuery<Booking[]>({
     queryKey: ["/api/auth/my-bookings"],
@@ -48,50 +46,10 @@ export default function Profile() {
     navigate("/");
   };
 
-  const handleProfilePicUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate client-side
-    if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
-      toast({ title: "Invalid file", description: "Only JPG and PNG images are allowed.", variant: "destructive" });
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Maximum file size is 5MB.", variant: "destructive" });
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      const res = await fetch("/api/auth/profile-image", {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Upload failed");
-      await refreshUser();
-      toast({ title: "Photo updated", description: "Your profile picture has been changed." });
-    } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
-    } finally {
-      setUploading(false);
-      // Reset input so same file can be re-selected
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
 
   if (!user) return null;
 
-  const initials = (user.fullName || user.username)
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = (user.fullName || user.username).trim().charAt(0).toUpperCase();
 
   if (view === "edit") return <EditProfileView user={user} onBack={() => setView("main")} onSaved={refreshUser} />;
   if (view === "password") return <ChangePasswordView onBack={() => setView("main")} />;
@@ -117,39 +75,12 @@ export default function Profile() {
           <div className="p-5">
             {/* Avatar row */}
             <div className="flex items-center gap-4">
-              {/* Tappable avatar with camera overlay */}
               <div className="relative flex-shrink-0">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png"
-                  className="hidden"
-                  onChange={handleProfilePicUpload}
-                />
-                <button
-                  className="relative group"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  aria-label="Change profile picture"
-                >
-                  <Avatar className="w-16 h-16" data-testid="avatar-profile">
-                    {user.profileImageUrl && (
-                      <AvatarImage src={user.profileImageUrl} alt={user.fullName || user.username} />
-                    )}
-                    <AvatarFallback className="text-xl font-bold bg-gradient-to-br from-primary to-emerald-600 text-white">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  {/* Camera overlay — visible on hover / always subtle */}
-                  <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
-                    <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                  {uploading && (
-                    <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                      <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  )}
-                </button>
+                <Avatar className="w-16 h-16" data-testid="avatar-profile">
+                  <AvatarFallback className="text-xl font-bold bg-gradient-to-br from-primary to-emerald-600 text-white">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
               </div>
 
               <div className="flex-1 min-w-0">
@@ -304,44 +235,12 @@ function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
 function EditProfileView({ user, onBack, onSaved }: { user: any; onBack: () => void; onSaved: () => Promise<void> }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [localImage, setLocalImage] = useState<string | null>(user.profileImageUrl);
   const [form, setForm] = useState({
     fullName: user.fullName || "",
     username: user.username || "",
     email: user.email || "",
     phoneNumber: user.phoneNumber || "",
   });
-
-  const handlePicChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!["image/jpeg", "image/jpg", "image/png"].includes(file.type)) {
-      toast({ title: "Invalid file", description: "Only JPG and PNG allowed.", variant: "destructive" });
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Max 5MB.", variant: "destructive" });
-      return;
-    }
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/auth/profile-image", { method: "POST", credentials: "include", body: fd });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Upload failed");
-      setLocalImage(body.profileImageUrl);
-      await onSaved();
-      toast({ title: "Photo updated" });
-    } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -370,47 +269,18 @@ function EditProfileView({ user, onBack, onSaved }: { user: any; onBack: () => v
     form.email !== user.email ||
     form.phoneNumber !== user.phoneNumber;
 
-  const initials = (form.fullName || form.username)
-    .split(" ")
-    .map((w: string) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = (form.fullName || form.username).trim().charAt(0).toUpperCase();
 
   return (
     <div className="min-h-screen bg-background pb-20">
       <SubHeader title="Edit Profile" onBack={onBack} />
       <main className="px-4 py-6 space-y-6">
-        {/* Avatar with change photo */}
         <div className="flex flex-col items-center gap-3">
-          <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png" className="hidden" onChange={handlePicChange} />
-          <button
-            className="relative group"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-          >
-            <Avatar className="w-24 h-24">
-              {localImage && <AvatarImage src={localImage} alt="Profile" />}
-              <AvatarFallback className="text-3xl font-bold bg-gradient-to-br from-primary to-emerald-600 text-white">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
-              <Camera className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            {uploading && (
-              <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
-                <span className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
-          </button>
-          <button
-            className="text-sm text-primary font-medium hover:underline"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? "Uploading…" : "Change Photo"}
-          </button>
+          <Avatar className="w-24 h-24">
+            <AvatarFallback className="text-3xl font-bold bg-gradient-to-br from-primary to-emerald-600 text-white">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
         </div>
 
         <Card className="p-5 space-y-5">

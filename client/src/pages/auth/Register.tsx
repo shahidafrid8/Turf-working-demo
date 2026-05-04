@@ -22,6 +22,12 @@ const schema = z.object({
       usernameRegex,
       "Letters, numbers, underscores, and periods only — can't start or end with a period"
     ),
+  fullName: z
+    .string()
+    .trim()
+    .max(80, "Full name must be 80 characters or fewer")
+    .optional()
+    .refine(val => !val || val.length >= 2, "Full name must be at least 2 characters"),
   email: z
     .string()
     .min(1, "Gmail address is required")
@@ -58,12 +64,15 @@ export default function Register() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const prefillEmail = new URLSearchParams(window.location.search).get("email") || "";
+  const searchParams = new URLSearchParams(window.location.search);
+  const prefillEmail = searchParams.get("email") || "";
+  const prefillFullName = searchParams.get("fullName") || "";
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       username: "",
+      fullName: prefillFullName,
       email: prefillEmail,
       phoneNumber: "",
       dateOfBirth: "",
@@ -75,8 +84,10 @@ export default function Register() {
   const onSubmit = async (values: FormValues) => {
     setIsSubmitting(true);
     try {
+      const fullName = values.fullName?.trim();
       await register({
         username: values.username,
+        ...(fullName ? { fullName } : {}),
         email: values.email,
         phoneNumber: values.phoneNumber,
         dateOfBirth: values.dateOfBirth,
@@ -116,7 +127,6 @@ export default function Register() {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-
             {/* Username */}
             <FormField
               control={form.control}
@@ -136,6 +146,27 @@ export default function Register() {
                   <p className="text-xs text-muted-foreground mt-1">
                     Letters, numbers, underscores, periods · max 30 chars
                   </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Full name */}
+            <FormField
+              control={form.control}
+              name="fullName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-muted-foreground text-sm">Full name (optional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      data-testid="input-full-name"
+                      placeholder="e.g. Rahul Sharma"
+                      autoComplete="name"
+                      className="bg-card border-border"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

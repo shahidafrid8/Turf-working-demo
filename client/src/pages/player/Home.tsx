@@ -7,7 +7,7 @@ import { TurfCard } from "@/components/TurfCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -213,12 +213,7 @@ export default function Home() {
 
   // User initials for avatar fallback
   const initials = user
-    ? (user.fullName || user.username)
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
+    ? (user.fullName || user.username).trim().charAt(0).toUpperCase()
     : "?";
 
   return (
@@ -242,9 +237,6 @@ export default function Home() {
             
             <Link href="/profile">
               <Avatar className="w-8 h-8 cursor-pointer" data-testid="avatar-profile">
-                {user?.profileImageUrl ? (
-                  <AvatarImage src={user.profileImageUrl} alt={user.fullName || user.username} />
-                ) : null}
                 <AvatarFallback className="text-xs font-bold bg-gradient-to-br from-primary to-emerald-600 text-white">
                   {initials}
                 </AvatarFallback>
