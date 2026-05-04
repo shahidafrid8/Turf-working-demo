@@ -29,6 +29,13 @@
       "when": 1777831200000,
       "tag": "0003_payment_holds_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777834800000,
+      "tag": "0004_normalized_schema_bootstrap",
+      "breakpoints": true
     }
   ]
 }

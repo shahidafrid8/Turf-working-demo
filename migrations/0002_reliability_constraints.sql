@@ -53,7 +53,7 @@ DO $$ BEGIN
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check') THEN
+  IF to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check') THEN
     ALTER TABLE "users"
       ADD CONSTRAINT "users_role_check"
       CHECK ("role" IN ('player', 'turf_owner', 'turf_staff'));
