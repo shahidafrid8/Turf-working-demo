@@ -88,8 +88,9 @@ export function registerPaymentRoutes(app: Express) {
   });
 
   app.post("/api/payments/mock-confirm/:holdId", async (req, res) => {
-    if (process.env.NODE_ENV === "production") {
-      return res.status(404).json({ error: "Not found" }) as any;
+    const allowMockPayments = process.env.ALLOW_MOCK_PAYMENTS === "true";
+    if (process.env.NODE_ENV === "production" && !allowMockPayments) {
+      return res.status(403).json({ error: "Mock payments are disabled" }) as any;
     }
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
 
