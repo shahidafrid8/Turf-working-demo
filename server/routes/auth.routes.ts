@@ -1,4 +1,6 @@
 import type { Express, Request, Response } from "express";
+import { z } from "zod";
+import { OAuth2Client } from "google-auth-library";
 import { storage } from "../storage";
 import { captureError } from "../logger";
 import {
@@ -15,7 +17,56 @@ import {
   verifyPassword,
 } from "./shared";
 
+const googleLoginSchema = z.object({
+  credential: z.string().min(1, "Missing Google credential"),
+}).strict();
+
 export function registerAuthRoutes(app: Express) {
+  app.post("/api/auth/google", async (req: Request, res: Response) => {
+    try {
+      const { credential } = googleLoginSchema.parse(req.body);
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      if (!clientId) return res.status(500).json({ error: "Google login is not configured" }) as any;
+
+      const client = new OAuth2Client(clientId);
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+
+      const payload = ticket.getPayload();
+      const email = payload?.email?.toLowerCase();
+      if (!email) return res.status(400).json({ error: "Invalid Google token" }) as any;
+      if (payload?.email_verified === false) return res.status(400).json({ error: "Google account email is not verified" }) as any;
+      if (!email.endsWith("@gmail.com")) return res.status(400).json({ error: "Only Gmail addresses (@gmail.com) are accepted" }) as any;
+
+      const existing = await storage.getUserByEmail(email);
+
+      if (!existing) {
+        return res.json({
+          needsRegistration: true,
+          email,
+          fullName: payload?.name ?? null,
+          profileImageUrl: payload?.picture ?? null,
+        });
+      }
+
+      if (existing.isBanned) {
+        return res.status(403).json({
+          error: `Your account has been suspended. Reason: ${existing.banReason || "Policy violation"}`,
+        }) as any;
+      }
+
+      req.session.userId = existing.id;
+      req.session.userRole = existing.role;
+      req.session.save(() => res.json({ needsRegistration: false, user: safeUserResponse(existing) }));
+    } catch (err: any) {
+      if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
+      captureError(err, { route: "POST /api/auth/google" });
+      res.status(500).json({ error: "Google login failed" });
+    }
+  });
+
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
       const data = baseRegisterSchema.parse(req.body);
@@ -34,6 +85,7 @@ export function registerAuthRoutes(app: Express) {
       });
 
       req.session.userId = user.id;
+      req.session.userRole = user.role;
       req.session.save(() => res.status(201).json(safeUserResponse(user)));
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
@@ -62,6 +114,7 @@ export function registerAuthRoutes(app: Express) {
       });
 
       req.session.userId = user.id;
+      req.session.userRole = user.role;
       req.session.save(() => res.status(201).json(safeUserResponse(user)));
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
@@ -84,6 +137,7 @@ export function registerAuthRoutes(app: Express) {
       }
 
       req.session.userId = user.id;
+      req.session.userRole = user.role;
       req.session.save(() => res.json(safeUserResponse(user)));
     } catch (err: any) {
       captureError(err, { route: "POST /api/auth/login" });

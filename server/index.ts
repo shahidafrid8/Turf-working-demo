@@ -16,6 +16,12 @@ assertProductionConfig();
 const app = express();
 const httpServer = createServer(app);
 
+// Render/Cloud Run/etc. run behind a reverse proxy. This is required so secure
+// cookies (express-session) work correctly in production.
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -67,6 +73,7 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/register/owner", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/google", authLimiter);
 
 // Rate limiter for uploads
 const uploadLimiter = rateLimit({
@@ -154,7 +161,7 @@ app.use((req, res, next) => {
     });
   });
 
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || process.env.SERVE_STATIC === "true") {
     serveStatic(app);
   } else {
     const { setupVite } = await import("./vite");

@@ -13,6 +13,7 @@ import { registerUploadRoutes } from "./routes/upload.routes";
 declare module "express-session" {
   interface SessionData {
     userId: string;
+    userRole: string; // 'player' | 'turf_owner' | 'turf_staff' | 'admin'
   }
 }
 

@@ -21,6 +21,10 @@ PORT=5000
 NODE_ENV=development
 CLOUDINARY_CLOUD_NAME=optional-cloudinary-cloud
 CLOUDINARY_UPLOAD_PRESET=optional-unsigned-upload-preset
+
+# Google Sign-In (optional)
+GOOGLE_CLIENT_ID=your-google-oauth-web-client-id.apps.googleusercontent.com
+VITE_GOOGLE_CLIENT_ID=your-google-oauth-web-client-id.apps.googleusercontent.com
 ```
 
 3. Apply database migrations:
@@ -60,6 +64,12 @@ npm run check
 `PORT` controls the Express server port.
 
 `CLOUDINARY_CLOUD_NAME` and `CLOUDINARY_UPLOAD_PRESET` enable external image storage. If omitted, uploads fall back to local `uploads/` storage for development.
+
+`GOOGLE_CLIENT_ID` enables Google Sign-In on the backend (`POST /api/auth/google`).
+
+`VITE_GOOGLE_CLIENT_ID` enables rendering the Google button on the frontend login screen. It must be set at build time (Vite bakes it into the bundle).
+
+Note: because registration currently requires phone number and date of birth, first-time Google users are redirected to the existing Register screen with their Gmail prefilled.
 
 ## Database Migration
 

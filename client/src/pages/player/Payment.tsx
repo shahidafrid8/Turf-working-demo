@@ -48,7 +48,9 @@ export default function Payment() {
 
   const createBookingMutation = useMutation({
     mutationFn: async (bookingData: InsertBooking) => {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : Date.now().toString(36) + Math.random().toString(36).substring(2);
       const holdResponse = await apiRequest("POST", "/api/payment-holds", {
         ...bookingData,
         idempotencyKey,

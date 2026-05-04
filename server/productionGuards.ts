@@ -4,8 +4,6 @@ const productionRequiredEnv = [
   "DATABASE_URL",
   "SESSION_SECRET",
   "ADMIN_KEY",
-  "CLOUDINARY_CLOUD_NAME",
-  "CLOUDINARY_UPLOAD_PRESET",
 ] as const;
 
 export function assertProductionConfig() {
@@ -18,6 +16,12 @@ export function assertProductionConfig() {
 
   if (process.env.ADMIN_KEY === "turftime-admin") {
     throw new Error("ADMIN_KEY must be changed before production startup");
+  }
+
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_UPLOAD_PRESET) {
+    logger.warn("config.cloudinary_missing", {
+      message: "Cloudinary is not configured; uploads will rely on local storage unless you set CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET",
+    });
   }
 
   logger.info("config.production_validated", {

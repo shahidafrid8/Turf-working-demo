@@ -21,10 +21,23 @@ export interface AuthUser {
   turfWidth?: number | null;
 }
 
+export type GoogleLoginResult =
+  | {
+      needsRegistration: true;
+      email: string;
+      fullName: string | null;
+      profileImageUrl: string | null;
+    }
+  | {
+      needsRegistration: false;
+      user: AuthUser;
+    };
+
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (identifier: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<GoogleLoginResult>;
   register: (data: PlayerRegisterData) => Promise<void>;
   registerOwner: (data: OwnerRegisterData) => Promise<void>;
   submitTurf: (data: TurfSubmitData) => Promise<void>;
@@ -87,6 +100,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data);
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const res = await apiRequest("POST", "/api/auth/google", { credential });
+    const data = (await res.json()) as GoogleLoginResult;
+
+    if (data.needsRegistration === false) {
+      setUser(data.user);
+    }
+
+    return data;
+  };
+
   const register = async (data: PlayerRegisterData) => {
     const res = await apiRequest("POST", "/api/auth/register", data);
     const body = await res.json();
@@ -124,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, registerOwner, submitTurf, refreshUser, logout, forgotPassword }}>
+    <AuthContext.Provider value={{ user, isLoading, login, loginWithGoogle, register, registerOwner, submitTurf, refreshUser, logout, forgotPassword }}>
       {children}
     </AuthContext.Provider>
   );

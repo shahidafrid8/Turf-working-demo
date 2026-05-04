@@ -7,7 +7,12 @@ import {
   type PricingRule, type InsertPricingRule,
   type AppFeedback, type InsertAppFeedback,
   type TurfReview,
-  users as usersTable,
+  type TurfApplication,
+  players as playersTable,
+  turfOwners as turfOwnersTable,
+  turfStaff as turfStaffTable,
+  authLookup as authLookupTable,
+  turfApplications as turfApplicationsTable,
   turfs as turfsTable,
   timeSlots as timeSlotsTable,
   bookings as bookingsTable,
@@ -122,7 +127,7 @@ const turfImages = [
   "https://images.unsplash.com/photo-1624880357913-a8539238245b?w=800&h=600&fit=crop",
 ];
 
-const initialTurfs: Omit<Turf, "ownerId">[] = [
+const initialTurfs: Omit<Turf, "ownerId" | "applicationId" | "openTime" | "closeTime" | "createdAt" | "updatedAt">[] = [
   { id: "turf-1", name: "Green Valley Cricket Ground", location: "Indiranagar, Bangalore", address: "123 Sports Complex, Indiranagar, Bangalore 560038", imageUrl: turfImages[0], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Changing Room", "Cafe", "Water"], sportTypes: ["Cricket"], pricePerHour: 1200, weekendSurcharge: 0, isAvailable: true, featured: true },
   { id: "turf-2", name: "Champions Cricket Ground", location: "Koramangala, Bangalore", address: "456 Stadium Road, Koramangala, Bangalore 560034", imageUrl: turfImages[1], rating: 5, amenities: ["Parking", "WiFi", "Showers", "Water"], sportTypes: ["Cricket"], pricePerHour: 1500, weekendSurcharge: 0, isAvailable: true, featured: true },
   { id: "turf-3", name: "Cricket Paradise", location: "HSR Layout, Bangalore", address: "789 Sports Avenue, HSR Layout, Bangalore 560102", imageUrl: turfImages[2], rating: 4, amenities: ["Parking", "Changing Room", "Water"], sportTypes: ["Cricket"], pricePerHour: 800, weekendSurcharge: 0, isAvailable: true, featured: false },
@@ -230,11 +235,12 @@ export class MemStorage implements IStorage {
     this.users.set(ownerUser.id, ownerUser);
 
     const tharakTurf: Turf = {
-      id: "seed-turf-tharak", ownerId: ownerUser.id,
+      id: "seed-turf-tharak", ownerId: ownerUser.id, applicationId: null,
       name: "Tharak's Turf", location: "Nandyal",
       address: "balaji complex, Nandyal, 518501", imageUrl: tharakUploadedImage,
       rating: 5, amenities: ["Parking"], sportTypes: ["Cricket"],
       pricePerHour: 1000, weekendSurcharge: 0, isAvailable: true, featured: true,
+      openTime: null, closeTime: null, createdAt: null, updatedAt: null,
     };
     this.turfs.set(tharakTurf.id, tharakTurf);
 
@@ -249,7 +255,7 @@ export class MemStorage implements IStorage {
     this.users.set(aliUser.id, aliUser);
 
     initialTurfs.forEach(turf => {
-      this.turfs.set(turf.id, { ...turf, ownerId: null });
+      this.turfs.set(turf.id, { ...turf, ownerId: null, applicationId: null, openTime: null, closeTime: null, createdAt: null, updatedAt: null });
     });
 
     const today = startOfToday();
@@ -274,8 +280,11 @@ export class MemStorage implements IStorage {
     if (!db) return;
 
     try {
-      const [dbUsers, dbTurfs, dbSlots, dbBookings, dbHolds, dbPricingRules, dbFeedbacks, dbReviews] = await Promise.all([
-        db.select().from(usersTable),
+      const [dbPlayers, dbOwners, dbStaff, dbTurfApps, dbTurfs, dbSlots, dbBookings, dbHolds, dbPricingRules, dbFeedbacks, dbReviews] = await Promise.all([
+        db.select().from(playersTable),
+        db.select().from(turfOwnersTable),
+        db.select().from(turfStaffTable),
+        db.select().from(turfApplicationsTable),
         db.select().from(turfsTable),
         db.select().from(timeSlotsTable),
         db.select().from(bookingsTable),
@@ -286,21 +295,57 @@ export class MemStorage implements IStorage {
       ]);
 
       const hasExistingData =
-        dbUsers.length > 0 ||
-        dbTurfs.length > 0 ||
-        dbSlots.length > 0 ||
-        dbBookings.length > 0 ||
-        dbHolds.length > 0 ||
-        dbPricingRules.length > 0 ||
-        dbFeedbacks.length > 0 ||
-        dbReviews.length > 0;
+        dbPlayers.length > 0 || dbOwners.length > 0 || dbStaff.length > 0 ||
+        dbTurfs.length > 0 || dbSlots.length > 0 || dbBookings.length > 0 ||
+        dbHolds.length > 0 || dbPricingRules.length > 0 ||
+        dbFeedbacks.length > 0 || dbReviews.length > 0;
 
       if (!hasExistingData) {
         await this.persistToDatabase();
         return;
       }
 
-      this.users = new Map(dbUsers.map((u) => [u.id, u]));
+      // Build turfApps lookup for owner User construction
+      const turfAppsByOwner = new Map<string, TurfApplication>();
+      for (const app of dbTurfApps) turfAppsByOwner.set(app.ownerId, app);
+
+      // Convert role-specific rows into unified User objects
+      this.users = new Map();
+      for (const p of dbPlayers) {
+        this.users.set(p.id, {
+          id: p.id, username: p.username, fullName: p.fullName, email: p.email,
+          phoneNumber: p.phoneNumber, password: p.password, dateOfBirth: p.dateOfBirth,
+          role: "player", managerId: null, isBanned: p.isBanned, banReason: p.banReason,
+          ownerStatus: null, turfStatus: null, turfName: null, turfLocation: null,
+          turfAddress: null, turfPincode: null, turfImageUrls: null,
+          turfLength: null, turfWidth: null, profileImageUrl: p.profileImageUrl,
+        });
+      }
+      for (const o of dbOwners) {
+        const app = turfAppsByOwner.get(o.id);
+        this.users.set(o.id, {
+          id: o.id, username: o.username, fullName: o.fullName, email: o.email,
+          phoneNumber: o.phoneNumber, password: o.password, dateOfBirth: o.dateOfBirth,
+          role: "turf_owner", managerId: null, isBanned: o.isBanned, banReason: o.banReason,
+          ownerStatus: o.ownerStatus,
+          turfStatus: app ? (app.status === "approved" ? "turf_approved" : app.status === "rejected" ? "turf_rejected" : "pending_turf") : null,
+          turfName: app?.turfName ?? null, turfLocation: app?.turfLocation ?? null,
+          turfAddress: app?.turfAddress ?? null, turfPincode: app?.turfPincode ?? null,
+          turfImageUrls: app?.turfImageUrls ?? null, turfLength: app?.turfLength ?? null,
+          turfWidth: app?.turfWidth ?? null, profileImageUrl: o.profileImageUrl,
+        });
+      }
+      for (const s of dbStaff) {
+        this.users.set(s.id, {
+          id: s.id, username: s.username, fullName: s.fullName, email: s.email,
+          phoneNumber: s.phoneNumber, password: s.password, dateOfBirth: s.dateOfBirth,
+          role: "turf_staff", managerId: s.ownerId, isBanned: false, banReason: null,
+          ownerStatus: "account_approved", turfStatus: null, turfName: null, turfLocation: null,
+          turfAddress: null, turfPincode: null, turfImageUrls: null,
+          turfLength: null, turfWidth: null, profileImageUrl: s.profileImageUrl,
+        });
+      }
+
       this.turfs = new Map(dbTurfs.map((t) => [t.id, t]));
       this.timeSlots = new Map(dbSlots.map((s) => [s.id, s]));
       this.bookings = new Map(dbBookings.map((b) => [b.id, b]));
@@ -319,7 +364,34 @@ export class MemStorage implements IStorage {
   public async persistToDatabase(): Promise<void> {
     if (!this.isDatabaseEnabled || !db) return;
 
-    const usersValues = Array.from(this.users.values());
+    const allUsers = Array.from(this.users.values());
+    const playerValues = allUsers.filter(u => u.role === "player").map(u => ({
+      id: u.id, username: u.username, fullName: u.fullName, email: u.email,
+      phoneNumber: u.phoneNumber, password: u.password, dateOfBirth: u.dateOfBirth,
+      profileImageUrl: u.profileImageUrl, isBanned: u.isBanned, banReason: u.banReason,
+    }));
+    const ownerValues = allUsers.filter(u => u.role === "turf_owner").map(u => ({
+      id: u.id, username: u.username, fullName: u.fullName, email: u.email,
+      phoneNumber: u.phoneNumber, password: u.password, dateOfBirth: u.dateOfBirth,
+      profileImageUrl: u.profileImageUrl, isBanned: u.isBanned, banReason: u.banReason,
+      ownerStatus: u.ownerStatus || "pending_account",
+    }));
+    const staffValues = allUsers.filter(u => u.role === "turf_staff").map(u => ({
+      id: u.id, username: u.username, fullName: u.fullName, email: u.email,
+      phoneNumber: u.phoneNumber, password: u.password, dateOfBirth: u.dateOfBirth,
+      profileImageUrl: u.profileImageUrl, ownerId: u.managerId || "",
+    }));
+    const authValues = allUsers.map(u => ({
+      email: u.email, phoneNumber: u.phoneNumber, role: u.role, roleTableId: u.id,
+    }));
+    const turfAppValues = allUsers
+      .filter(u => u.role === "turf_owner" && u.turfName)
+      .map(u => ({
+        ownerId: u.id, turfName: u.turfName!, turfLocation: u.turfLocation || "",
+        turfAddress: u.turfAddress || "", turfPincode: u.turfPincode || "000000",
+        turfImageUrls: u.turfImageUrls, turfLength: u.turfLength, turfWidth: u.turfWidth,
+        status: u.turfStatus === "turf_approved" ? "approved" : u.turfStatus === "turf_rejected" ? "rejected" : "pending",
+      }));
     const turfsValues = Array.from(this.turfs.values());
     const slotValues = Array.from(this.timeSlots.values());
     const bookingValues = Array.from(this.bookings.values());
@@ -335,9 +407,17 @@ export class MemStorage implements IStorage {
     await db.delete(bookingsTable);
     await db.delete(timeSlotsTable);
     await db.delete(turfsTable);
-    await db.delete(usersTable);
+    await db.delete(turfApplicationsTable);
+    await db.delete(authLookupTable);
+    await db.delete(turfStaffTable);
+    await db.delete(turfOwnersTable);
+    await db.delete(playersTable);
 
-    if (usersValues.length) await db.insert(usersTable).values(usersValues);
+    if (playerValues.length) await db.insert(playersTable).values(playerValues);
+    if (ownerValues.length) await db.insert(turfOwnersTable).values(ownerValues);
+    if (staffValues.length) await db.insert(turfStaffTable).values(staffValues);
+    if (authValues.length) await db.insert(authLookupTable).values(authValues);
+    if (turfAppValues.length) await db.insert(turfApplicationsTable).values(turfAppValues);
     if (turfsValues.length) await db.insert(turfsTable).values(turfsValues);
     if (slotValues.length) await db.insert(timeSlotsTable).values(slotValues);
     if (bookingValues.length) await db.insert(bookingsTable).values(bookingValues);
@@ -379,23 +459,27 @@ export class MemStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
     const user: User = {
-      role: "player",
-      isBanned: false,
-      banReason: null,
-      ownerStatus: null,
-      turfName: null,
-      turfLocation: null,
-      turfAddress: null,
-      turfImageUrls: null,
-      turfPincode: null,
-      turfLength: null,
-      turfWidth: null,
-      turfStatus: null,
-      profileImageUrl: null,
-      fullName: null,
-      managerId: null,
-      ...insertUser,
       id,
+      username: insertUser.username,
+      email: insertUser.email,
+      phoneNumber: insertUser.phoneNumber,
+      password: insertUser.password,
+      dateOfBirth: insertUser.dateOfBirth,
+      role: insertUser.role || "player",
+      fullName: insertUser.fullName ?? null,
+      managerId: insertUser.managerId ?? null,
+      isBanned: insertUser.isBanned ?? false,
+      banReason: insertUser.banReason ?? null,
+      ownerStatus: insertUser.ownerStatus ?? null,
+      turfStatus: insertUser.turfStatus ?? null,
+      turfName: insertUser.turfName ?? null,
+      turfLocation: insertUser.turfLocation ?? null,
+      turfAddress: insertUser.turfAddress ?? null,
+      turfPincode: insertUser.turfPincode ?? null,
+      turfImageUrls: insertUser.turfImageUrls ?? null,
+      turfLength: insertUser.turfLength ?? null,
+      turfWidth: insertUser.turfWidth ?? null,
+      profileImageUrl: insertUser.profileImageUrl ?? null,
     };
     this.users.set(id, user);
     return user;
@@ -449,6 +533,7 @@ export class MemStorage implements IStorage {
       const turf: Turf = {
         id: turfId,
         ownerId: user.id,
+        applicationId: null,
         name: user.turfName,
         location: user.turfLocation,
         address: user.turfAddress,
@@ -460,6 +545,10 @@ export class MemStorage implements IStorage {
         weekendSurcharge: 0,
         isAvailable: true,
         featured: false,
+        openTime: null,
+        closeTime: null,
+        createdAt: null,
+        updatedAt: null,
       };
       this.turfs.set(turfId, turf);
 
@@ -559,7 +648,7 @@ export class MemStorage implements IStorage {
 
   async createTurf(insertTurf: InsertTurf): Promise<Turf> {
     const id = randomUUID();
-    const turf: Turf = { rating: 5, isAvailable: true, featured: false, ownerId: null, weekendSurcharge: 0, ...insertTurf, id };
+    const turf: Turf = { rating: 5, isAvailable: true, featured: false, ownerId: null, applicationId: null, weekendSurcharge: 0, openTime: null, closeTime: null, createdAt: null, updatedAt: null, ...insertTurf, id };
     this.turfs.set(id, turf);
     return turf;
   }
@@ -638,7 +727,7 @@ export class MemStorage implements IStorage {
 
   async createBooking(insertBooking: InsertBooking): Promise<Booking> {
     const id = randomUUID();
-    const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, reviewPromptShown: false, ...insertBooking, id, createdAt: new Date() };
+    const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, guestName: null, guestPhone: null, bookingSource: "online", reviewPromptShown: false, ...insertBooking, id, createdAt: new Date() };
     this.bookings.set(bookingEntity.id, bookingEntity);
     return bookingEntity;
   }
@@ -658,6 +747,9 @@ export class MemStorage implements IStorage {
       userId: null,
       userName: null,
       userPhone: null,
+      guestName: null,
+      guestPhone: null,
+      bookingSource: "online",
       reviewPromptShown: false,
       ...insertBooking,
       id,

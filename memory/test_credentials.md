@@ -2,17 +2,17 @@
 
 ## Turf Owner (Seed Account)
 - Username: testowner
-- Password: owner123
+- Password: (seed/demo value — change for production)
 - Role: turf_owner
 - Status: account_approved / turf_approved
 - URL: /owner/login
 
 ## Player (Seed Account)
 - Username: shahid
-- Password: shahid123
+- Password: (seed/demo value — change for production)
 - Role: player
 - URL: /login
 
 ## Admin Panel
 - URL: /admin
-- Admin Key: turftime-admin (query param ?adminKey=turftime-admin)
+- Admin Key: set `ADMIN_KEY` in environment (do not use the default in production)

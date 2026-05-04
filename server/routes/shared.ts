@@ -5,6 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import { insertBookingSchema, insertPricingRuleSchema } from "@shared/schema";
+import type { User } from "@shared/schema";
 import { storage } from "../storage";
 
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -208,6 +209,8 @@ export const banUserSchema = z.object({
   reason: z.string().min(1).max(500),
 }).strict();
 
+// ── Safe user response (strips password, normalizes shape) ───────────────────
+
 type SafeUser = {
   id: string;
   username: string;
@@ -250,7 +253,9 @@ export function safeUserResponse(user: SafeUser) {
   };
 }
 
-export async function findUserByIdentifier(identifier: string) {
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+
+export async function findUserByIdentifier(identifier: string): Promise<User | undefined> {
   let user = await storage.getUserByUsername(identifier);
   if (!user) user = await storage.getUserByPhone(identifier);
   if (!user) user = await storage.getUserByEmail(identifier);

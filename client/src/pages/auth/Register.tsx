@@ -58,11 +58,13 @@ export default function Register() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const prefillEmail = new URLSearchParams(window.location.search).get("email") || "";
+
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       username: "",
-      email: "",
+      email: prefillEmail,
       phoneNumber: "",
       dateOfBirth: "",
       password: "",
