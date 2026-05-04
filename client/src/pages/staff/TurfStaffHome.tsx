@@ -540,12 +540,22 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
   };
 
   const isPending = blockMutation.isPending || unblockMutation.isPending;
-  const morningSlots = slots.filter(s => s.period === "morning");
-  const afternoonSlots = slots.filter(s => s.period === "afternoon");
-  const eveningSlots = slots.filter(s => s.period === "evening");
-  const blockedCount = slots.filter(s => s.isBlocked).length;
-  const bookedCount = slots.filter(s => s.isBooked).length;
-  const availableCount = slots.filter(s => !s.isBooked && !s.isBlocked).length;
+  const todayStr = format(today, "yyyy-MM-dd");
+  const nowMinutes = (() => {
+    const now = new Date();
+    return (now.getHours() * 60) + now.getMinutes();
+  })();
+  const visibleSlots = slots.filter((slot) => {
+    if (selectedDate !== todayStr) return true;
+    const [endHour, endMinute] = slot.endTime.split(":").map(Number);
+    return ((endHour * 60) + endMinute) > nowMinutes;
+  });
+  const morningSlots = visibleSlots.filter(s => s.period === "morning");
+  const afternoonSlots = visibleSlots.filter(s => s.period === "afternoon");
+  const eveningSlots = visibleSlots.filter(s => s.period === "evening");
+  const blockedCount = visibleSlots.filter(s => s.isBlocked).length;
+  const bookedCount = visibleSlots.filter(s => s.isBooked).length;
+  const availableCount = visibleSlots.filter(s => !s.isBooked && !s.isBlocked).length;
 
   const renderPeriod = (label: string, time: string, periodSlots: TimeSlot[]) => (
     <div className="space-y-2">
@@ -613,7 +623,7 @@ function SlotManagementPanel({ turf }: { turf: Turf }) {
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: 9 }).map((_, i) => <div key={i} className="h-16 rounded-lg bg-secondary animate-pulse" />)}
         </div>
-      ) : slots.length === 0 ? (
+      ) : visibleSlots.length === 0 ? (
         <p className="text-muted-foreground text-sm text-center py-4">No slots available for this date.</p>
       ) : (
         <div className="space-y-5">

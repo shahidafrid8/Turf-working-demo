@@ -34,8 +34,22 @@ export default function Bookings() {
     enabled: !!user,
   });
 
-  const upcomingBookings = bookings?.filter((b) => b.status === "confirmed") || [];
-  const pastBookings = bookings?.filter((b) => b.status === "completed") || [];
+  const getBookingEndDateTime = (booking: Booking) => new Date(`${booking.date}T${booking.endTime}:00`);
+
+  const isPastBooking = (booking: Booking) => new Date() >= getBookingEndDateTime(booking);
+
+  const getDisplayStatus = (booking: Booking) => {
+    if (booking.status === "cancelled") return "cancelled";
+    if (isPastBooking(booking)) {
+      if (booking.paidAmount < booking.totalAmount) return "not played";
+      return "completed";
+    }
+    if (booking.paidAmount >= booking.totalAmount) return "paid";
+    return "confirmed";
+  };
+
+  const upcomingBookings = bookings?.filter((b) => b.status !== "cancelled" && !isPastBooking(b)) || [];
+  const pastBookings = bookings?.filter((b) => b.status !== "cancelled" && isPastBooking(b)) || [];
 
   const handleViewDetails = (booking: Booking) => {
     sessionStorage.setItem("confirmedBooking", JSON.stringify(booking));
@@ -73,6 +87,7 @@ export default function Bookings() {
 
   const BookingCard = ({ booking }: { booking: Booking }) => {
     const needsReview = checkNeedsReview(booking);
+    const displayStatus = getDisplayStatus(booking);
     
     return (
     <div className="space-y-3">
@@ -109,10 +124,10 @@ export default function Bookings() {
           </div>
         </div>
         <Badge 
-          variant={booking.status === "confirmed" ? "default" : "secondary"}
+          variant={displayStatus === "confirmed" ? "default" : "secondary"}
           className="capitalize"
         >
-          {booking.status}
+          {displayStatus}
         </Badge>
       </div>
 
