@@ -1,3 +1,4 @@
+-- TEMP COPY: do not edit or commit from here.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 --> statement-breakpoint
 

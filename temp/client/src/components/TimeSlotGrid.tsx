@@ -1,3 +1,4 @@
+// TEMP COPY: do not edit or commit from here.
 import { cn } from "@/lib/utils";
 import type { TimeSlot } from "@shared/schema";
 import { format } from "date-fns";

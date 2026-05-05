@@ -1,3 +1,4 @@
+-- TEMP COPY: do not edit or commit from here.
 -- Reference-only migration kept for future debugging. Active schema lives in migrations/0000_full_schema.sql.
 -- This file is intentionally commented out and should not execute.
 

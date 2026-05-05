@@ -1,3 +1,4 @@
+// TEMP COPY: do not edit or commit from here.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Calendar, Clock, MapPin, ChevronRight, Check, Star, MessageSquare } from "lucide-react";
 import { useState } from "react";
