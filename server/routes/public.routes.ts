@@ -6,6 +6,11 @@ export function registerPublicRoutes(app: Express) {
     res.json(await storage.getLocations());
   });
 
+  app.get("/api/updates", async (_req, res) => {
+    const updates = await storage.getAdminUpdates();
+    res.json(updates.filter(update => update.audience === "players" || update.audience === "all"));
+  });
+
   app.get("/api/turfs", async (_req, res) => {
     try {
       res.json(await storage.getTurfs());

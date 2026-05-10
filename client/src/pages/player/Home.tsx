@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles } from "lucide-react";
+import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles, Megaphone } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { TurfTimeLogo } from "@/components/TurfTimeLogo";
 import { TurfCard } from "@/components/TurfCard";
@@ -14,7 +14,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Turf, Booking } from "@shared/schema";
+import type { Turf, Booking, AdminUpdate } from "@shared/schema";
 import { formatDistanceToNow, format } from "date-fns";
 import { useSEO } from "@/lib/seo";
 
@@ -47,6 +47,10 @@ export default function Home() {
   const { data: myBookings } = useQuery<Booking[]>({
     queryKey: ["/api/auth/my-bookings"],
     enabled: !!user && user.role === "player",
+  });
+
+  const { data: playerUpdates } = useQuery<AdminUpdate[]>({
+    queryKey: ["/api/updates"],
   });
 
   const notifications = useMemo(() => {
@@ -257,6 +261,31 @@ export default function Home() {
             Book your next game in seconds
           </p>
         </section>
+
+        {playerUpdates && playerUpdates.length > 0 && (
+          <section className="space-y-3" data-testid="section-admin-post-updates">
+            {playerUpdates.slice(0, 3).map(update => (
+              <div key={update.id} className="rounded-xl border border-primary/20 bg-primary/10 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
+                    <Megaphone className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-semibold text-foreground leading-tight">{update.title}</p>
+                      {update.createdAt && (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {formatDistanceToNow(new Date(update.createdAt as any), { addSuffix: true })}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{update.body}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
 
         {/* Search Bar */}
         <section className="relative" data-testid="section-search">

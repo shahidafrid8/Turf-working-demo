@@ -198,6 +198,7 @@ export default function Admin() {
   const [isCreatingPromo, setIsCreatingPromo] = useState(false);
   const [updateTitle, setUpdateTitle] = useState("");
   const [updateBody, setUpdateBody] = useState("");
+  const [updateAudience, setUpdateAudience] = useState<AdminUpdate["audience"]>("players");
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
@@ -280,7 +281,7 @@ export default function Admin() {
         body: JSON.stringify({
           title: updateTitle.trim(),
           body: updateBody.trim(),
-          audience: "internal",
+          audience: updateAudience,
         }),
       });
       if (!res.ok) throw new Error("Failed to add update");
@@ -288,6 +289,7 @@ export default function Admin() {
       setAdminUpdates(prev => [update, ...prev]);
       setUpdateTitle("");
       setUpdateBody("");
+      setUpdateAudience("players");
       toast({ title: "Update saved", description: "It now appears in past updates." });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Could not save update.", variant: "destructive" });
@@ -866,15 +868,112 @@ export default function Admin() {
             </div>
           )}
 
+          {tab === "search" && (
+            <div className="flex-1 px-4 py-5 overflow-y-auto space-y-5">
+              <form onSubmit={handleGlobalSearch} className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Search platform</p>
+                  <p className="text-xs text-muted-foreground">Find players, owners, and bookings by name, phone, email, turf, or booking code.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={searchQuery}
+                    onChange={event => setSearchQuery(event.target.value)}
+                    placeholder="Search name, phone, email, turf, code..."
+                    className="bg-background border-border flex-1"
+                    data-testid="input-admin-global-search"
+                  />
+                  <Button type="submit" size="sm" disabled={isSearching || searchQuery.trim().length < 2} data-testid="button-admin-global-search">
+                    {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </form>
+
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    Users · {searchResults.users.length}
+                  </p>
+                  {searchResults.users.length === 0 ? (
+                    <div className="bg-card border border-border rounded-xl px-4 py-6 text-center">
+                      <Users className="w-8 h-8 text-muted-foreground opacity-40 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">No user results yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {searchResults.users.map(user => (
+                        <div key={user.id} className="bg-card border border-border rounded-xl px-4 py-3" data-testid={`search-user-${user.id}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-foreground truncate">{user.fullName || user.username}</p>
+                              <p className="text-xs text-muted-foreground">@{user.username} · {user.role}</p>
+                            </div>
+                            {user.isBanned && <StatusBadge label="Suspended" color="red" />}
+                          </div>
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            <p className="flex items-center gap-1.5"><Phone className="w-3 h-3" />{user.phoneNumber}</p>
+                            <p className="flex items-center gap-1.5"><Mail className="w-3 h-3" />{user.email}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    Bookings · {searchResults.bookings.length}
+                  </p>
+                  {searchResults.bookings.length === 0 ? (
+                    <div className="bg-card border border-border rounded-xl px-4 py-6 text-center">
+                      <CreditCard className="w-8 h-8 text-muted-foreground opacity-40 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">No booking results yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {searchResults.bookings.map(booking => (
+                        <div key={booking.id} className="bg-card border border-border rounded-xl p-4 space-y-2" data-testid={`search-booking-${booking.id}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-foreground truncate">{booking.turfName}</p>
+                              <p className="text-xs text-muted-foreground">{booking.userName || booking.guestName || "Unknown player"}</p>
+                            </div>
+                            <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-md shrink-0 tracking-wider">{booking.bookingCode}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />{booking.date}</span>
+                            <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />{booking.startTime} - {booking.endTime}</span>
+                            <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />₹{booking.totalAmount}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Pending Requests ── */}
           {tab === "updates" && (
             <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
               <form onSubmit={handleCreateUpdate} className="bg-card border border-border rounded-xl p-4 space-y-3">
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Add update</p>
-                  <p className="text-xs text-muted-foreground">Keep a clean history of admin-side platform changes.</p>
+                  <p className="text-xs text-muted-foreground">Post admin updates internally or show them on the player home screen.</p>
                 </div>
                 <Input value={updateTitle} onChange={event => setUpdateTitle(event.target.value)} placeholder="Update title" className="bg-background border-border" data-testid="input-admin-update-title" />
+                <select
+                  value={updateAudience}
+                  onChange={event => setUpdateAudience(event.target.value as AdminUpdate["audience"])}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  data-testid="select-admin-update-audience"
+                >
+                  <option value="players">Players home screen</option>
+                  <option value="all">Everyone</option>
+                  <option value="owners">Owners only</option>
+                  <option value="internal">Internal admin note</option>
+                </select>
                 <textarea
                   value={updateBody}
                   onChange={event => setUpdateBody(event.target.value)}
