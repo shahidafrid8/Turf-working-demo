@@ -268,12 +268,20 @@ export const bookings = pgTable("bookings", {
   paymentMethod: text("payment_method").notNull(),
   status: text("status").notNull().default("pending_payment"),
   bookingCode: text("booking_code").notNull(),
+  promoCode: text("promo_code"),
+  discountAmount: integer("discount_amount").notNull().default(0),
+  verificationCode: text("verification_code").notNull().default("0000"),
+  verificationStatus: text("verification_status").notNull().default("pending"),
+  checkedInAt: timestamp("checked_in_at"),
   userId: text("user_id"), // → players.id (nullable for walk-in bookings)
   userName: text("user_name"),
   userPhone: text("user_phone"),
   guestName: text("guest_name"), // for walk-in bookings without account
   guestPhone: text("guest_phone"), // for walk-in bookings without account
   bookingSource: text("booking_source").notNull().default("online"), // 'online' | 'offline' | 'walk_in'
+  travelDistanceKm: integer("travel_distance_km"),
+  travelEtaMinutes: integer("travel_eta_minutes"),
+  recommendedLeaveAt: text("recommended_leave_at"),
   reviewPromptShown: boolean("review_prompt_shown").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -328,12 +336,17 @@ export const slotHolds = pgTable("slot_holds", {
   balanceAmount: integer("balance_amount").notNull(),
   paymentMethod: text("payment_method").notNull(),
   bookingCode: text("booking_code").notNull(),
+  promoCode: text("promo_code"),
+  discountAmount: integer("discount_amount").notNull().default(0),
   slotIds: text("slot_ids").array().notNull(),
   idempotencyKey: text("idempotency_key").notNull(),
   status: text("status").notNull().default("active"),
   userId: text("user_id"),
   userName: text("user_name"),
   userPhone: text("user_phone"),
+  travelDistanceKm: integer("travel_distance_km"),
+  travelEtaMinutes: integer("travel_eta_minutes"),
+  recommendedLeaveAt: text("recommended_leave_at"),
   providerReference: text("provider_reference"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -366,6 +379,28 @@ export const pricingRules = pgTable("pricing_rules", {
 export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ id: true, createdAt: true });
 export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
 export type PricingRule = typeof pricingRules.$inferSelect;
+
+/** Promo codes configured by admin */
+export const promoCodes = pgTable("promo_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  discountType: text("discount_type").notNull().default("fixed"),
+  discountValue: integer("discount_value").notNull(),
+  maxDiscountAmount: integer("max_discount_amount"),
+  minBookingAmount: integer("min_booking_amount").notNull().default(0),
+  usageLimit: integer("usage_limit"),
+  usedCount: integer("used_count").notNull().default(0),
+  perUserLimit: integer("per_user_limit").notNull().default(1),
+  startDate: text("start_date"),
+  expiresAt: text("expires_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPromoCodeSchema = createInsertSchema(promoCodes).omit({ id: true, usedCount: true, createdAt: true });
+export type InsertPromoCode = z.infer<typeof insertPromoCodeSchema>;
+export type PromoCode = typeof promoCodes.$inferSelect;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GROUP 4: SYSTEM
@@ -422,3 +457,17 @@ export const auditLog = pgTable("audit_log", {
 });
 
 export type AuditLogEntry = typeof auditLog.$inferSelect;
+
+/** Admin-visible product updates and changelog entries */
+export const adminUpdates = pgTable("admin_updates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  audience: text("audience").notNull().default("internal"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAdminUpdateSchema = createInsertSchema(adminUpdates).omit({ id: true, createdAt: true });
+export type InsertAdminUpdate = z.infer<typeof insertAdminUpdateSchema>;
+export type AdminUpdate = typeof adminUpdates.$inferSelect;

@@ -23,6 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import type { Turf, TimeSlot } from "@shared/schema";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { useSEO } from "@/lib/seo";
+import { OnboardingProgress } from "@/components/owner/OnboardingProgress";
 
 const DATE_COUNT = 14;
 const today = startOfToday();
@@ -821,6 +822,7 @@ function BookingsPanel({ turf }: { turf: Turf }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [verificationInputs, setVerificationInputs] = useState<Record<string, string>>({});
 
   const { data: bookings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/owner/turfs", turf.id, "bookings"],
@@ -849,6 +851,16 @@ function BookingsPanel({ turf }: { turf: Turf }) {
       toast({ title: "Booking cancelled", description: "The booking has been cancelled and slots freed." });
     },
     onError: (err: any) => toast({ title: "Cannot cancel", description: err.message || "Something went wrong.", variant: "destructive" }),
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: ({ bookingId, code }: { bookingId: string; code: string }) =>
+      apiRequest("POST", `/api/owner/bookings/${bookingId}/verify`, { code }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "bookings"] });
+      toast({ title: "Booking verified", description: "The player has been checked in." });
+    },
+    onError: (err: any) => toast({ title: "Code not matched", description: err.message || "Ask the player to confirm the 4-digit code.", variant: "destructive" }),
   });
 
   const upcoming = bookings.filter(b => b.date >= format(today, "yyyy-MM-dd") && b.status !== "cancelled");
@@ -888,6 +900,50 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         <span>Total: <span className="text-foreground font-semibold">₹{b.totalAmount}</span></span>
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
+      {b.status !== "cancelled" && (
+        <div className="rounded-lg border border-border bg-background/60 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-foreground">4-digit check-in</p>
+              <p className="text-[11px] text-muted-foreground">
+                {b.verificationStatus === "verified" ? "Player code verified" : "Ask player for the code"}
+              </p>
+            </div>
+            <span className={cn(
+              "text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase",
+              b.verificationStatus === "verified"
+                ? "bg-green-500/15 text-green-500"
+                : "bg-yellow-500/15 text-yellow-500"
+            )}>
+              {b.verificationStatus === "verified" ? "Verified" : "Pending"}
+            </span>
+          </div>
+          {b.verificationStatus !== "verified" && (
+            <div className="flex gap-2">
+              <Input
+                value={verificationInputs[b.id] || ""}
+                onChange={(event) => setVerificationInputs(prev => ({
+                  ...prev,
+                  [b.id]: event.target.value.replace(/\D/g, "").slice(0, 4),
+                }))}
+                placeholder="0000"
+                inputMode="numeric"
+                maxLength={4}
+                className="h-9 bg-card tracking-[0.3em] text-center font-bold"
+                data-testid={`input-verify-code-${b.id}`}
+              />
+              <Button
+                size="sm"
+                disabled={verifyMutation.isPending || (verificationInputs[b.id] || "").length !== 4}
+                onClick={() => verifyMutation.mutate({ bookingId: b.id, code: verificationInputs[b.id] || "" })}
+                data-testid={`button-verify-code-${b.id}`}
+              >
+                Verify
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       {user?.role === "turf_owner" && b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (
         <div className="flex gap-2">
           {b.balanceAmount > 0 && (
@@ -1029,7 +1085,8 @@ function TurfSubmitForm() {
 
   return (
     <div className="space-y-5">
-      <div className="bg-primary/10 border border-primary/20 rounded-xl px-4 py-3 flex items-start gap-3">
+      <OnboardingProgress />
+      <div className="hidden">
         <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div>
           <p className="text-primary font-semibold text-sm">Account approved</p>

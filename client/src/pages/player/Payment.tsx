@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, CreditCard, Smartphone, Wallet, Shield, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { ArrowLeft, CreditCard, Smartphone, Wallet, Shield, ChevronDown, ChevronUp, Info, MapPin, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,8 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Booking, InsertBooking } from "@shared/schema";
+import { estimateTravelMinutes, getRecommendedLeaveAt, requestBrowserLocation } from "@/lib/travelEstimate";
+import type { Booking } from "@shared/schema";
 
 interface PendingBooking {
   turfId: string;
@@ -35,6 +36,11 @@ export default function Payment() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("upi");
   const [promoCode, setPromoCode] = useState("");
   const [promoExpanded, setPromoExpanded] = useState(false);
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discountAmount: number } | null>(null);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [distanceKm, setDistanceKm] = useState("");
+  const [mapEstimateSource, setMapEstimateSource] = useState<"manual" | "openrouteservice" | "osrm" | null>(null);
+  const [isEstimatingTravel, setIsEstimatingTravel] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -47,7 +53,7 @@ export default function Payment() {
   }, [setLocation]);
 
   const createBookingMutation = useMutation({
-    mutationFn: async (bookingData: InsertBooking) => {
+    mutationFn: async (bookingData: any) => {
       const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
         ? crypto.randomUUID() 
         : Date.now().toString(36) + Math.random().toString(36).substring(2);
@@ -80,13 +86,22 @@ export default function Payment() {
     return null;
   }
 
-  const payNowAmount = Math.round(pendingBooking.totalAmount * 0.3);
-  const payAtVenueAmount = pendingBooking.totalAmount - payNowAmount;
+  const discountAmount = appliedPromo?.discountAmount || 0;
+  const finalTotalAmount = Math.max(0, pendingBooking.totalAmount - discountAmount);
+  const payNowAmount = Math.round(finalTotalAmount * 0.3);
+  const payAtVenueAmount = finalTotalAmount - payNowAmount;
+  const parsedDistanceKm = Number(distanceKm);
+  const travelEtaMinutes = estimateTravelMinutes(parsedDistanceKm);
+  const recommendedLeaveAt = getRecommendedLeaveAt(
+    pendingBooking.date,
+    pendingBooking.startTime,
+    travelEtaMinutes
+  );
 
   const handlePayment = () => {
     const bookingCode = `TT${Date.now().toString(36).toUpperCase()}`;
     
-    const bookingData: InsertBooking = {
+    const bookingData = {
       turfId: pendingBooking.turfId,
       turfName: pendingBooking.turfName,
       turfAddress: pendingBooking.turfAddress,
@@ -94,15 +109,65 @@ export default function Payment() {
       startTime: pendingBooking.startTime,
       endTime: pendingBooking.endTime,
       duration: pendingBooking.duration,
-      totalAmount: pendingBooking.totalAmount,
+      totalAmount: finalTotalAmount,
       paidAmount: payNowAmount,
       balanceAmount: payAtVenueAmount,
       paymentMethod: selectedPaymentMethod,
       status: "pending_payment",
       bookingCode,
+      promoCode: appliedPromo?.code || null,
+      discountAmount,
+      travelDistanceKm: parsedDistanceKm > 0 ? Math.round(parsedDistanceKm) : null,
+      travelEtaMinutes: travelEtaMinutes > 0 ? travelEtaMinutes : null,
+      recommendedLeaveAt,
     };
 
     createBookingMutation.mutate(bookingData);
+  };
+
+  const handleEstimateFromLocation = async () => {
+    setIsEstimatingTravel(true);
+    try {
+      const origin = await requestBrowserLocation();
+      const res = await apiRequest("POST", "/api/travel/estimate", {
+        destination: pendingBooking.turfAddress,
+        origin,
+      });
+      const estimate = await res.json() as { distanceKm: number | null; etaMinutes: number | null; source: "openrouteservice" | "osrm" | "manual" | "unavailable" };
+      if (!estimate.distanceKm || !estimate.etaMinutes) {
+        toast({
+          title: "Map estimate unavailable",
+          description: "Add OPENROUTESERVICE_API_KEY for best results, or enter distance manually for now.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setDistanceKm(String(estimate.distanceKm));
+      setMapEstimateSource(estimate.source === "openrouteservice" || estimate.source === "osrm" ? estimate.source : "manual");
+    } catch (error: any) {
+      toast({ title: "Location not available", description: error.message, variant: "destructive" });
+    } finally {
+      setIsEstimatingTravel(false);
+    }
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setIsApplyingPromo(true);
+    try {
+      const res = await apiRequest("POST", "/api/promos/validate", {
+        code: promoCode,
+        bookingAmount: pendingBooking.totalAmount,
+      });
+      const promo = await res.json() as { code: string; discountAmount: number };
+      setAppliedPromo(promo);
+      toast({ title: "Promo applied", description: `${promo.code} saved ₹${promo.discountAmount}` });
+    } catch (error: any) {
+      setAppliedPromo(null);
+      toast({ title: "Promo failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsApplyingPromo(false);
+    }
   };
 
   return (
@@ -149,9 +214,15 @@ export default function Payment() {
             
             <Separator className="my-3" />
             
+            {discountAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Promo Discount</span>
+                <span className="font-medium text-primary">-₹{discountAmount}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="font-semibold text-foreground">Total Amount</span>
-              <span className="font-bold text-xl text-foreground">₹{pendingBooking.totalAmount}</span>
+              <span className="font-bold text-xl text-foreground">₹{finalTotalAmount}</span>
             </div>
           </div>
         </Card>
@@ -183,6 +254,47 @@ export default function Payment() {
             <p className="text-xs text-muted-foreground text-center">
               Pay a small amount now to confirm your booking. The remaining balance can be paid at the venue.
             </p>
+          </div>
+        </Card>
+
+        <Card className="p-4" data-testid="card-trip-planner">
+          <div className="flex items-center gap-2 mb-3">
+            <MapPin className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-foreground">Trip Reminder</h2>
+          </div>
+          <div className="space-y-3">
+            <Input
+              value={distanceKm}
+              onChange={(event) => {
+                setDistanceKm(event.target.value.replace(/[^\d.]/g, ""));
+                setMapEstimateSource("manual");
+              }}
+              placeholder="Distance from you to turf (km)"
+              inputMode="decimal"
+              data-testid="input-distance-km"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleEstimateFromLocation}
+              disabled={isEstimatingTravel}
+              data-testid="button-estimate-location"
+            >
+              <Navigation className="w-4 h-4 mr-2" />
+              {isEstimatingTravel ? "Estimating..." : "Use my location"}
+            </Button>
+            {travelEtaMinutes > 0 && recommendedLeaveAt && (
+              <div className="rounded-lg bg-secondary/60 px-3 py-2 text-sm">
+                <p className="text-foreground font-medium">Estimated travel: {travelEtaMinutes} min</p>
+                <p className="text-muted-foreground text-xs mt-0.5">
+                  {mapEstimateSource === "openrouteservice"
+                    ? "Calculated with OpenRouteService."
+                    : mapEstimateSource === "osrm"
+                      ? "Calculated with free OSRM routing."
+                      : "Manual distance estimate."}
+                </p>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -260,10 +372,20 @@ export default function Payment() {
                   className="flex-1"
                   data-testid="input-promo"
                 />
-                <Button variant="secondary" data-testid="button-apply-promo">
-                  Apply
+                <Button
+                  variant="secondary"
+                  data-testid="button-apply-promo"
+                  onClick={handleApplyPromo}
+                  disabled={isApplyingPromo || !promoCode.trim()}
+                >
+                  {isApplyingPromo ? "Checking..." : "Apply"}
                 </Button>
               </div>
+              {appliedPromo && (
+                <p className="text-xs text-primary mt-2">
+                  {appliedPromo.code} applied. You saved ₹{appliedPromo.discountAmount}.
+                </p>
+              )}
             </div>
           )}
         </Card>

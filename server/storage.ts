@@ -5,7 +5,9 @@ import {
   type Booking, type InsertBooking,
   type SlotHold, type InsertSlotHold,
   type PricingRule, type InsertPricingRule,
+  type PromoCode, type InsertPromoCode,
   type AppFeedback, type InsertAppFeedback,
+  type AdminUpdate, type InsertAdminUpdate,
   type TurfReview,
   type TurfApplication,
   players as playersTable,
@@ -18,13 +20,16 @@ import {
   bookings as bookingsTable,
   slotHolds as slotHoldsTable,
   pricingRules as pricingRulesTable,
+  promoCodes as promoCodesTable,
   appFeedback as appFeedbackTable,
+  adminUpdates as adminUpdatesTable,
   turfReviews as turfReviewsTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { addDays, format, startOfToday } from "date-fns";
 import bcrypt from "bcrypt";
 import { db, pool } from "./db";
+import { generateVerificationCode, isVerificationCodeValid, normalizeVerificationCode } from "./services/bookingVerification";
 
 export interface IStorage {
   // Users
@@ -88,6 +93,7 @@ export interface IStorage {
   getBookingsByUserId(userId: string): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   createBookingWithSlotLock(booking: InsertBooking, slotIds: string[]): Promise<Booking>;
+  verifyBookingCode(bookingId: string, code: string): Promise<Booking | undefined>;
   createSlotHold(hold: Omit<InsertSlotHold, "status" | "expiresAt">, slotIds: string[], holdMinutes?: number): Promise<SlotHold>;
   getSlotHold(id: string): Promise<SlotHold | undefined>;
   confirmSlotHold(id: string, providerReference?: string): Promise<Booking>;
@@ -107,6 +113,12 @@ export interface IStorage {
   getPricingRulesByTurf(turfId: string): Promise<PricingRule[]>;
   setPricingRuleActive(id: string, active: boolean): Promise<PricingRule | undefined>;
 
+  // Promo codes
+  getPromoCodes(): Promise<PromoCode[]>;
+  createPromoCode(promo: InsertPromoCode): Promise<PromoCode>;
+  validatePromoCode(code: string, bookingAmount: number, userId?: string): Promise<{ promo: PromoCode; discountAmount: number }>;
+  redeemPromoCode(code: string): Promise<void>;
+
   // Reviews
   createReview(data: { bookingId: string; turfId: string; userId: string; rating: number; comment?: string }): Promise<TurfReview>;
   getReviewsByTurf(turfId: string): Promise<TurfReview[]>;
@@ -116,6 +128,10 @@ export interface IStorage {
   // App Feedback
   getAppFeedback(userId: string): Promise<AppFeedback | undefined>;
   upsertAppFeedback(userId: string, data: { rating: number; feedback?: string }): Promise<AppFeedback>;
+
+  // Admin Updates
+  getAdminUpdates(): Promise<AdminUpdate[]>;
+  createAdminUpdate(update: InsertAdminUpdate): Promise<AdminUpdate>;
 }
 
 const turfImages = [
@@ -170,10 +186,12 @@ export class MemStorage implements IStorage {
   private bookings: Map<string, Booking>;
   private slotHolds: Map<string, SlotHold>;
   private pricingRules: Map<string, PricingRule>;
+  private promoCodes: Map<string, PromoCode>;
   private appFeedbacks: Map<string, AppFeedback>;
+  private adminUpdates: Map<string, AdminUpdate>;
   private turfReviews: Map<string, TurfReview>;
   private locations: string[];
-  public readonly isDatabaseEnabled: boolean;
+  public isDatabaseEnabled: boolean;
   public readonly readyPromise: Promise<void>;
   private persistQueue: Promise<void>;
 
@@ -184,12 +202,42 @@ export class MemStorage implements IStorage {
     this.bookings = new Map();
     this.slotHolds = new Map();
     this.pricingRules = new Map();
+    this.promoCodes = new Map();
     this.appFeedbacks = new Map();
+    this.adminUpdates = new Map();
     this.turfReviews = new Map();
     this.locations = [
       "Bangalore", "Chennai", "Mumbai", "Delhi",
       "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Nandyal",
     ];
+
+    const firstAdminUpdate: AdminUpdate = {
+      id: "seed-admin-update-verification",
+      title: "Booking verification codes are live",
+      body: "Players now receive a 4-digit code after payment. Turf owners can verify the code from the booking card before check-in.",
+      audience: "internal",
+      createdBy: "system",
+      createdAt: new Date(),
+    };
+    this.adminUpdates.set(firstAdminUpdate.id, firstAdminUpdate);
+
+    const welcomePromo: PromoCode = {
+      id: "seed-promo-welcome10",
+      code: "WELCOME10",
+      description: "10% off for early users",
+      discountType: "percent",
+      discountValue: 10,
+      maxDiscountAmount: 500,
+      minBookingAmount: 500,
+      usageLimit: 100,
+      usedCount: 0,
+      perUserLimit: 1,
+      startDate: null,
+      expiresAt: null,
+      isActive: true,
+      createdAt: new Date(),
+    };
+    this.promoCodes.set(welcomePromo.code, welcomePromo);
 
     const playerUser: User = {
       id: "seed-player-shahid", username: "shahid", fullName: "Shahid Afrid",
@@ -280,7 +328,7 @@ export class MemStorage implements IStorage {
     if (!db) return;
 
     try {
-      const [dbPlayers, dbOwners, dbStaff, dbTurfApps, dbTurfs, dbSlots, dbBookings, dbHolds, dbPricingRules, dbFeedbacks, dbReviews] = await Promise.all([
+      const [dbPlayers, dbOwners, dbStaff, dbTurfApps, dbTurfs, dbSlots, dbBookings, dbHolds, dbPricingRules, dbPromoCodes, dbFeedbacks, dbAdminUpdates, dbReviews] = await Promise.all([
         db.select().from(playersTable),
         db.select().from(turfOwnersTable),
         db.select().from(turfStaffTable),
@@ -290,15 +338,17 @@ export class MemStorage implements IStorage {
         db.select().from(bookingsTable),
         db.select().from(slotHoldsTable),
         db.select().from(pricingRulesTable),
+        db.select().from(promoCodesTable),
         db.select().from(appFeedbackTable),
+        db.select().from(adminUpdatesTable),
         db.select().from(turfReviewsTable),
       ]);
 
       const hasExistingData =
         dbPlayers.length > 0 || dbOwners.length > 0 || dbStaff.length > 0 ||
         dbTurfs.length > 0 || dbSlots.length > 0 || dbBookings.length > 0 ||
-        dbHolds.length > 0 || dbPricingRules.length > 0 ||
-        dbFeedbacks.length > 0 || dbReviews.length > 0;
+        dbHolds.length > 0 || dbPricingRules.length > 0 || dbPromoCodes.length > 0 ||
+        dbFeedbacks.length > 0 || dbAdminUpdates.length > 0 || dbReviews.length > 0;
 
       if (!hasExistingData) {
         await this.persistToDatabase();
@@ -351,10 +401,13 @@ export class MemStorage implements IStorage {
       this.bookings = new Map(dbBookings.map((b) => [b.id, b]));
       this.slotHolds = new Map(dbHolds.map((h) => [h.id, h]));
       this.pricingRules = new Map(dbPricingRules.map((r) => [r.id, r]));
+      this.promoCodes = new Map(dbPromoCodes.map((p) => [p.code, p]));
       this.appFeedbacks = new Map(dbFeedbacks.map((f) => [f.userId, f]));
+      this.adminUpdates = new Map(dbAdminUpdates.map((u) => [u.id, u]));
       this.turfReviews = new Map(dbReviews.map((r) => [r.id, r]));
     } catch (error) {
       console.error("[storage] Failed loading from database; falling back to in-memory seed data", error);
+      this.isDatabaseEnabled = false;
       if (process.env.NODE_ENV === "production") {
         throw error;
       }
@@ -397,11 +450,15 @@ export class MemStorage implements IStorage {
     const bookingValues = Array.from(this.bookings.values());
     const holdValues = Array.from(this.slotHolds.values());
     const pricingRuleValues = Array.from(this.pricingRules.values());
+    const promoValues = Array.from(this.promoCodes.values());
     const feedbackValues = Array.from(this.appFeedbacks.values());
+    const adminUpdateValues = Array.from(this.adminUpdates.values());
     const reviewValues = Array.from(this.turfReviews.values());
 
     await db.delete(turfReviewsTable);
+    await db.delete(adminUpdatesTable);
     await db.delete(appFeedbackTable);
+    await db.delete(promoCodesTable);
     await db.delete(pricingRulesTable);
     await db.delete(slotHoldsTable);
     await db.delete(bookingsTable);
@@ -423,7 +480,9 @@ export class MemStorage implements IStorage {
     if (bookingValues.length) await db.insert(bookingsTable).values(bookingValues);
     if (holdValues.length) await db.insert(slotHoldsTable).values(holdValues);
     if (pricingRuleValues.length) await db.insert(pricingRulesTable).values(pricingRuleValues);
+    if (promoValues.length) await db.insert(promoCodesTable).values(promoValues);
     if (feedbackValues.length) await db.insert(appFeedbackTable).values(feedbackValues);
+    if (adminUpdateValues.length) await db.insert(adminUpdatesTable).values(adminUpdateValues);
     if (reviewValues.length) await db.insert(turfReviewsTable).values(reviewValues);
   }
 
@@ -727,8 +786,29 @@ export class MemStorage implements IStorage {
 
   async createBooking(insertBooking: InsertBooking): Promise<Booking> {
     const id = randomUUID();
-    const bookingEntity: Booking = { status: "confirmed", userId: null, userName: null, userPhone: null, guestName: null, guestPhone: null, bookingSource: "online", reviewPromptShown: false, ...insertBooking, id, createdAt: new Date() };
+    const bookingEntity: Booking = {
+      status: "confirmed",
+      userId: null,
+      userName: null,
+      userPhone: null,
+      guestName: null,
+      guestPhone: null,
+      bookingSource: "online",
+      promoCode: null,
+      discountAmount: 0,
+      travelDistanceKm: null,
+      travelEtaMinutes: null,
+      recommendedLeaveAt: null,
+      reviewPromptShown: false,
+      ...insertBooking,
+      verificationCode: generateVerificationCode(),
+      verificationStatus: "pending",
+      checkedInAt: null,
+      id,
+      createdAt: new Date(),
+    };
     this.bookings.set(bookingEntity.id, bookingEntity);
+    if (bookingEntity.promoCode) await this.redeemPromoCode(bookingEntity.promoCode);
     return bookingEntity;
   }
 
@@ -750,8 +830,16 @@ export class MemStorage implements IStorage {
       guestName: null,
       guestPhone: null,
       bookingSource: "online",
+      promoCode: null,
+      discountAmount: 0,
+      travelDistanceKm: null,
+      travelEtaMinutes: null,
+      recommendedLeaveAt: null,
       reviewPromptShown: false,
       ...insertBooking,
+      verificationCode: generateVerificationCode(),
+      verificationStatus: "pending",
+      checkedInAt: null,
       id,
       createdAt: new Date(),
     };
@@ -766,6 +854,7 @@ export class MemStorage implements IStorage {
         if (slot) this.timeSlots.set(slot.id, { ...slot, isBooked: true });
       }
       this.bookings.set(bookingEntity.id, bookingEntity);
+      if (bookingEntity.promoCode) await this.redeemPromoCode(bookingEntity.promoCode);
       return bookingEntity;
     }
 
@@ -822,11 +911,15 @@ export class MemStorage implements IStorage {
         `INSERT INTO bookings (
           id, turf_id, turf_name, turf_address, date, start_time, end_time,
           duration, total_amount, paid_amount, balance_amount, payment_method,
-          status, booking_code, user_id, user_name, user_phone, review_prompt_shown, created_at
+          status, booking_code, promo_code, discount_amount, verification_code, verification_status, checked_in_at,
+          user_id, user_name, user_phone, booking_source, travel_distance_km,
+          travel_eta_minutes, recommended_leave_at, review_prompt_shown, created_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
           $8, $9, $10, $11, $12,
-          $13, $14, $15, $16, $17, $18, $19
+          $13, $14, $15, $16, $17, $18, $19,
+          $20, $21, $22, $23, $24,
+          $25, $26, $27, $28
         )`,
         [
           bookingEntity.id,
@@ -843,9 +936,18 @@ export class MemStorage implements IStorage {
           bookingEntity.paymentMethod,
           bookingEntity.status,
           bookingEntity.bookingCode,
+          bookingEntity.promoCode,
+          bookingEntity.discountAmount,
+          bookingEntity.verificationCode,
+          bookingEntity.verificationStatus,
+          bookingEntity.checkedInAt,
           bookingEntity.userId,
           bookingEntity.userName,
           bookingEntity.userPhone,
+          bookingEntity.bookingSource,
+          bookingEntity.travelDistanceKm,
+          bookingEntity.travelEtaMinutes,
+          bookingEntity.recommendedLeaveAt,
           bookingEntity.reviewPromptShown,
           bookingEntity.createdAt,
         ],
@@ -858,6 +960,7 @@ export class MemStorage implements IStorage {
         if (slot) this.timeSlots.set(slotId, { ...slot, isBooked: true });
       }
       this.bookings.set(bookingEntity.id, bookingEntity);
+      if (bookingEntity.promoCode) await this.redeemPromoCode(bookingEntity.promoCode);
 
       return bookingEntity;
     } catch (error) {
@@ -905,6 +1008,11 @@ export class MemStorage implements IStorage {
       expiresAt: new Date(Date.now() + holdMinutes * 60 * 1000),
       createdAt: new Date(),
       providerReference: insertHold.providerReference ?? null,
+      promoCode: insertHold.promoCode ?? null,
+      discountAmount: insertHold.discountAmount ?? 0,
+      travelDistanceKm: insertHold.travelDistanceKm ?? null,
+      travelEtaMinutes: insertHold.travelEtaMinutes ?? null,
+      recommendedLeaveAt: insertHold.recommendedLeaveAt ?? null,
       userId: insertHold.userId ?? null,
       userName: insertHold.userName ?? null,
       userPhone: insertHold.userPhone ?? null,
@@ -991,19 +1099,19 @@ export class MemStorage implements IStorage {
         `INSERT INTO slot_holds (
           id, turf_id, turf_name, turf_address, date, start_time, end_time, duration,
           total_amount, paid_amount, balance_amount, payment_method, booking_code,
-          slot_ids, idempotency_key, status, user_id, user_name, user_phone,
-          provider_reference, expires_at, created_at
+          promo_code, discount_amount, slot_ids, idempotency_key, status, user_id, user_name, user_phone,
+          travel_distance_km, travel_eta_minutes, recommended_leave_at, provider_reference, expires_at, created_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8,
           $9, $10, $11, $12, $13,
-          $14, $15, $16, $17, $18, $19,
-          $20, $21, $22
+          $14, $15, $16, $17, $18, $19, $20, $21,
+          $22, $23, $24, $25, $26, $27
         )`,
         [
           hold.id, hold.turfId, hold.turfName, hold.turfAddress, hold.date, hold.startTime, hold.endTime, hold.duration,
           hold.totalAmount, hold.paidAmount, hold.balanceAmount, hold.paymentMethod, hold.bookingCode,
-          hold.slotIds, hold.idempotencyKey, hold.status, hold.userId, hold.userName, hold.userPhone,
-          hold.providerReference, hold.expiresAt, hold.createdAt,
+          hold.promoCode, hold.discountAmount, hold.slotIds, hold.idempotencyKey, hold.status, hold.userId, hold.userName, hold.userPhone,
+          hold.travelDistanceKm, hold.travelEtaMinutes, hold.recommendedLeaveAt, hold.providerReference, hold.expiresAt, hold.createdAt,
         ],
       );
 
@@ -1045,6 +1153,11 @@ export class MemStorage implements IStorage {
       paymentMethod: hold.paymentMethod,
       status: "confirmed",
       bookingCode: hold.bookingCode,
+      promoCode: hold.promoCode,
+      discountAmount: hold.discountAmount,
+      travelDistanceKm: hold.travelDistanceKm,
+      travelEtaMinutes: hold.travelEtaMinutes,
+      recommendedLeaveAt: hold.recommendedLeaveAt,
       userId: hold.userId,
       userName: hold.userName,
       userPhone: hold.userPhone,
@@ -1102,19 +1215,24 @@ export class MemStorage implements IStorage {
       balanceAmount: row.balance_amount,
       paymentMethod: row.payment_method,
       bookingCode: row.booking_code,
+      promoCode: row.promo_code,
+      discountAmount: row.discount_amount ?? 0,
       slotIds: row.slot_ids,
       idempotencyKey: row.idempotency_key,
       status: row.status,
       userId: row.user_id,
       userName: row.user_name,
       userPhone: row.user_phone,
+      travelDistanceKm: row.travel_distance_km,
+      travelEtaMinutes: row.travel_eta_minutes,
+      recommendedLeaveAt: row.recommended_leave_at,
       providerReference: row.provider_reference,
       expiresAt: row.expires_at,
       createdAt: row.created_at,
     };
   }
 
-  private assertBookingMatchesSlots(insertBooking: InsertBooking, slots: TimeSlot[]): void {
+  private assertBookingMatchesSlots(insertBooking: Pick<InsertBooking, "duration" | "startTime" | "endTime" | "turfId" | "date" | "totalAmount" | "discountAmount">, slots: TimeSlot[]): void {
     const durationHours = Math.ceil(insertBooking.duration / 60);
     if (durationHours !== slots.length) {
       throw Object.assign(new Error("Selected slots do not match booking duration"), { status: 400 });
@@ -1141,8 +1259,10 @@ export class MemStorage implements IStorage {
       throw Object.assign(new Error("Booking end time does not match selected slots"), { status: 400 });
     }
 
-    const totalAmount = sortedSlots.reduce((sum, slot) => sum + slot.price, 0);
-    if (insertBooking.totalAmount !== totalAmount) {
+    const slotTotalAmount = sortedSlots.reduce((sum, slot) => sum + slot.price, 0);
+    const discountAmount = insertBooking.discountAmount || 0;
+    const expectedTotalAmount = Math.max(0, slotTotalAmount - discountAmount);
+    if (insertBooking.totalAmount !== expectedTotalAmount) {
       throw Object.assign(new Error("Booking total does not match current slot pricing"), { status: 400 });
     }
   }
@@ -1163,6 +1283,31 @@ export class MemStorage implements IStorage {
     if (!booking) return undefined;
     const updated = { ...booking, status };
     this.bookings.set(id, updated);
+    return updated;
+  }
+
+  async verifyBookingCode(id: string, code: string): Promise<Booking | undefined> {
+    const booking = this.bookings.get(id);
+    if (!booking) return undefined;
+
+    if (!isVerificationCodeValid(booking, normalizeVerificationCode(code))) {
+      throw Object.assign(new Error("Verification code does not match this booking"), { status: 400 });
+    }
+
+    const updated: Booking = {
+      ...booking,
+      verificationStatus: "verified",
+      checkedInAt: new Date(),
+    };
+    this.bookings.set(id, updated);
+
+    if (this.isDatabaseEnabled && pool) {
+      await pool.query(
+        `UPDATE bookings SET verification_status = 'verified', checked_in_at = $2 WHERE id = $1`,
+        [id, updated.checkedInAt],
+      );
+    }
+
     return updated;
   }
 
@@ -1238,6 +1383,64 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async getPromoCodes(): Promise<PromoCode[]> {
+    return Array.from(this.promoCodes.values())
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  }
+
+  async createPromoCode(insertPromo: InsertPromoCode): Promise<PromoCode> {
+    const code = insertPromo.code.trim().toUpperCase();
+    if (this.promoCodes.has(code)) {
+      throw Object.assign(new Error("Promo code already exists"), { status: 409 });
+    }
+
+    const promo: PromoCode = {
+      description: null,
+      discountType: "fixed",
+      maxDiscountAmount: null,
+      minBookingAmount: 0,
+      usageLimit: null,
+      perUserLimit: 1,
+      startDate: null,
+      expiresAt: null,
+      isActive: true,
+      ...insertPromo,
+      code,
+      id: randomUUID(),
+      usedCount: 0,
+      createdAt: new Date(),
+    };
+    this.promoCodes.set(code, promo);
+    return promo;
+  }
+
+  async validatePromoCode(code: string, bookingAmount: number): Promise<{ promo: PromoCode; discountAmount: number }> {
+    const normalizedCode = code.trim().toUpperCase();
+    const promo = this.promoCodes.get(normalizedCode);
+    if (!promo || !promo.isActive) throw Object.assign(new Error("Promo code is not active"), { status: 404 });
+
+    const today = format(new Date(), "yyyy-MM-dd");
+    if (promo.startDate && today < promo.startDate) throw Object.assign(new Error("Promo code has not started yet"), { status: 400 });
+    if (promo.expiresAt && today > promo.expiresAt) throw Object.assign(new Error("Promo code has expired"), { status: 400 });
+    if (promo.usageLimit !== null && promo.usedCount >= promo.usageLimit) throw Object.assign(new Error("Promo code usage limit reached"), { status: 400 });
+    if (bookingAmount < promo.minBookingAmount) throw Object.assign(new Error(`Minimum booking amount is ₹${promo.minBookingAmount}`), { status: 400 });
+
+    const rawDiscount = promo.discountType === "percent"
+      ? Math.floor((bookingAmount * promo.discountValue) / 100)
+      : promo.discountValue;
+    const cappedDiscount = promo.maxDiscountAmount ? Math.min(rawDiscount, promo.maxDiscountAmount) : rawDiscount;
+    const discountAmount = Math.max(0, Math.min(cappedDiscount, bookingAmount));
+    if (discountAmount <= 0) throw Object.assign(new Error("Promo code does not apply to this booking"), { status: 400 });
+    return { promo, discountAmount };
+  }
+
+  async redeemPromoCode(code: string): Promise<void> {
+    const normalizedCode = code.trim().toUpperCase();
+    const promo = this.promoCodes.get(normalizedCode);
+    if (!promo) return;
+    this.promoCodes.set(normalizedCode, { ...promo, usedCount: promo.usedCount + 1 });
+  }
+
   private applyPricingRuleToFutureSlots(rule: PricingRule): void {
     if (!rule.isActive) return;
     for (const [slotId, slot] of Array.from(this.timeSlots.entries())) {
@@ -1304,6 +1507,23 @@ export class MemStorage implements IStorage {
     };
     this.appFeedbacks.set(userId, feedback);
     return feedback;
+  }
+
+  async getAdminUpdates(): Promise<AdminUpdate[]> {
+    return Array.from(this.adminUpdates.values())
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  }
+
+  async createAdminUpdate(insertUpdate: InsertAdminUpdate): Promise<AdminUpdate> {
+    const update: AdminUpdate = {
+      audience: "internal",
+      createdBy: null,
+      ...insertUpdate,
+      id: randomUUID(),
+      createdAt: new Date(),
+    };
+    this.adminUpdates.set(update.id, update);
+    return update;
   }
 
   // ── Ban / Unban ─────────────────────────────────────────────────────────────
@@ -1439,6 +1659,7 @@ const mutatingMethods = new Set<keyof IStorage>([
   "createBooking",
   "createSlotHold",
   "confirmSlotHold",
+  "verifyBookingCode",
   "expireSlotHolds",
   "markBookingPaid",
   "updateBookingStatus",
@@ -1448,8 +1669,11 @@ const mutatingMethods = new Set<keyof IStorage>([
   "unbookTimeSlot",
   "createPricingRule",
   "setPricingRuleActive",
+  "createPromoCode",
+  "redeemPromoCode",
   "createReview",
   "upsertAppFeedback",
+  "createAdminUpdate",
 ]);
 
 const baseStorage = new MemStorage();

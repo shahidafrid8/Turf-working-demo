@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Clock, MapPin, ChevronRight, Check, Star, MessageSquare } from "lucide-react";
+import { Calendar, Clock, MapPin, ChevronRight, Check, Star, MessageSquare, Navigation } from "lucide-react";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Booking } from "@shared/schema";
 import { useSEO } from "@/lib/seo";
+import { formatLeaveAt } from "@/lib/travelEstimate";
 
 export default function Bookings() {
   useSEO({
@@ -141,6 +142,20 @@ export default function Bookings() {
           <span>{booking.startTime}</span>
         </div>
       </div>
+
+      {(booking.travelEtaMinutes || booking.recommendedLeaveAt) && (
+        <div className="mt-3 rounded-lg bg-secondary/70 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <Navigation className="w-3.5 h-3.5 text-primary" />
+              {booking.travelEtaMinutes ? `${booking.travelEtaMinutes} min travel` : "Trip reminder"}
+            </span>
+            {booking.recommendedLeaveAt && (
+              <span className="font-medium text-foreground">{formatLeaveAt(booking.recommendedLeaveAt)}</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
         <div className="flex flex-col">

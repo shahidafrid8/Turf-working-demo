@@ -31,6 +31,15 @@ export function registerPaymentRoutes(app: Express) {
         requiredSlots.push(matchingSlot);
       }
 
+      if (validatedData.promoCode) {
+        const promo = await storage.validatePromoCode(validatedData.promoCode, requiredSlots.reduce((sum, slot) => sum + slot.price, 0), user.id);
+        if (promo.discountAmount !== (validatedData.discountAmount || 0)) {
+          return res.status(400).json({ error: "Promo discount has changed. Please reapply the promo code." }) as any;
+        }
+      } else if ((validatedData.discountAmount || 0) > 0) {
+        return res.status(400).json({ error: "Discount requires a valid promo code" }) as any;
+      }
+
       const hold = await storage.createSlotHold({
         ...validatedData,
         idempotencyKey: validatedData.idempotencyKey,

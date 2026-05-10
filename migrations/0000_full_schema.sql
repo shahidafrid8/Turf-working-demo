@@ -194,12 +194,20 @@ CREATE TABLE IF NOT EXISTS "bookings" (
   "payment_method" text NOT NULL,
   "status" text DEFAULT 'pending_payment' NOT NULL,
   "booking_code" text NOT NULL,
+  "promo_code" text,
+  "discount_amount" integer DEFAULT 0 NOT NULL,
+  "verification_code" text DEFAULT '0000' NOT NULL,
+  "verification_status" text DEFAULT 'pending' NOT NULL,
+  "checked_in_at" timestamp,
   "user_id" text,
   "user_name" text,
   "user_phone" text,
   "guest_name" text,
   "guest_phone" text,
   "booking_source" text DEFAULT 'online' NOT NULL,
+  "travel_distance_km" integer,
+  "travel_eta_minutes" integer,
+  "recommended_leave_at" text,
   "review_prompt_shown" boolean DEFAULT false NOT NULL,
   "created_at" timestamp DEFAULT now()
 );
@@ -248,12 +256,17 @@ CREATE TABLE IF NOT EXISTS "slot_holds" (
   "balance_amount" integer NOT NULL,
   "payment_method" text NOT NULL,
   "booking_code" text NOT NULL,
+  "promo_code" text,
+  "discount_amount" integer DEFAULT 0 NOT NULL,
   "slot_ids" text[] NOT NULL,
   "idempotency_key" text NOT NULL,
   "status" text DEFAULT 'active' NOT NULL,
   "user_id" text,
   "user_name" text,
   "user_phone" text,
+  "travel_distance_km" integer,
+  "travel_eta_minutes" integer,
+  "recommended_leave_at" text,
   "provider_reference" text,
   "expires_at" timestamp NOT NULL,
   "created_at" timestamp DEFAULT now()
@@ -283,6 +296,25 @@ CREATE TABLE IF NOT EXISTS "pricing_rules" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "pricing_rules_turf_active_idx"
   ON "pricing_rules" ("turf_id", "is_active");
+
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "promo_codes" (
+  "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "code" text NOT NULL,
+  "description" text,
+  "discount_type" text DEFAULT 'fixed' NOT NULL,
+  "discount_value" integer NOT NULL,
+  "max_discount_amount" integer,
+  "min_booking_amount" integer DEFAULT 0 NOT NULL,
+  "usage_limit" integer,
+  "used_count" integer DEFAULT 0 NOT NULL,
+  "per_user_limit" integer DEFAULT 1 NOT NULL,
+  "start_date" text,
+  "expires_at" text,
+  "is_active" boolean DEFAULT true NOT NULL,
+  "created_at" timestamp DEFAULT now(),
+  CONSTRAINT "promo_codes_code_unique" UNIQUE("code")
+);
 
 -- ── SYSTEM ───────────────────────────────────────────────────────────────────
 --> statement-breakpoint
@@ -322,6 +354,15 @@ CREATE TABLE IF NOT EXISTS "audit_log" (
   "target_type" text NOT NULL,
   "target_id" varchar NOT NULL,
   "details" text,
+  "created_at" timestamp DEFAULT now()
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "admin_updates" (
+  "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "title" text NOT NULL,
+  "body" text NOT NULL,
+  "audience" text DEFAULT 'internal' NOT NULL,
+  "created_by" varchar,
   "created_at" timestamp DEFAULT now()
 );
 

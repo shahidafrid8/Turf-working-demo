@@ -3,7 +3,9 @@ import { storage } from "../storage";
 import {
   ADMIN_KEY,
   adminLocationSchema,
+  adminUpdateSchema,
   banUserSchema,
+  promoCodeAdminSchema,
   getAdminKey,
   safeUserResponse,
   sanitizeText,
@@ -18,6 +20,38 @@ function requireAdmin(req: Request, res: Response): boolean {
 }
 
 export function registerAdminRoutes(app: Express) {
+  app.get("/api/admin/updates", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    res.json(await storage.getAdminUpdates());
+  });
+
+  app.post("/api/admin/updates", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const parsed = adminUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid update" }) as any;
+    const update = await storage.createAdminUpdate({
+      ...parsed.data,
+      createdBy: "admin",
+    });
+    res.status(201).json(update);
+  });
+
+  app.get("/api/admin/promos", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    res.json(await storage.getPromoCodes());
+  });
+
+  app.post("/api/admin/promos", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const parsed = promoCodeAdminSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid promo code" }) as any;
+    try {
+      res.status(201).json(await storage.createPromoCode(parsed.data));
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err?.message || "Could not create promo code" });
+    }
+  });
+
   app.post("/api/admin/locations", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     const parsed = adminLocationSchema.safeParse(req.body);

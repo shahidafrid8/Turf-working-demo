@@ -92,7 +92,32 @@ interface Booking {
   createdAt: string;
 }
 
-type Tab = "overview" | "requests" | "locations" | "owners" | "players" | "bookings" | "payouts" | "search";
+interface AdminUpdate {
+  id: string;
+  title: string;
+  body: string;
+  audience: "internal" | "owners" | "players" | "all";
+  createdBy: string | null;
+  createdAt: string;
+}
+
+interface PromoCode {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: "fixed" | "percent";
+  discountValue: number;
+  maxDiscountAmount: number | null;
+  minBookingAmount: number;
+  usageLimit: number | null;
+  usedCount: number;
+  perUserLimit: number;
+  startDate: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+}
+
+type Tab = "overview" | "requests" | "locations" | "owners" | "players" | "bookings" | "payouts" | "search" | "updates" | "promos";
 
 function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   if (!value) return null;
@@ -156,6 +181,24 @@ export default function Admin() {
   const [allOwners, setAllOwners] = useState<AllOwner[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [adminUpdates, setAdminUpdates] = useState<AdminUpdate[]>([]);
+  const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
+  const [promoForm, setPromoForm] = useState({
+    code: "",
+    description: "",
+    discountType: "fixed",
+    discountValue: "",
+    maxDiscountAmount: "",
+    minBookingAmount: "0",
+    usageLimit: "",
+    perUserLimit: "1",
+    startDate: "",
+    expiresAt: "",
+  });
+  const [isCreatingPromo, setIsCreatingPromo] = useState(false);
+  const [updateTitle, setUpdateTitle] = useState("");
+  const [updateBody, setUpdateBody] = useState("");
+  const [isPostingUpdate, setIsPostingUpdate] = useState(false);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
   const [isAddingLocation, setIsAddingLocation] = useState(false);
@@ -187,7 +230,7 @@ export default function Admin() {
     if (!quiet) setIsLoading(true);
     else setIsRefreshing(true);
     try {
-      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes, payoutsRes] = await Promise.all([
+      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes, payoutsRes, updatesRes, promosRes] = await Promise.all([
         adminFetch(`/api/admin/stats`, key),
         adminFetch(`/api/admin/owners`, key),
         adminFetch(`/api/admin/pending-turfs`, key),
@@ -197,12 +240,14 @@ export default function Admin() {
         adminFetch(`/api/admin/bookings`, key),
         adminFetch(`/api/admin/pending-turf-listings`, key),
         adminFetch(`/api/admin/payouts`, key),
+        adminFetch(`/api/admin/updates`, key),
+        adminFetch(`/api/admin/promos`, key),
       ]);
       if (statsRes.status === 403) throw new Error("Invalid admin key");
       if (!statsRes.ok) throw new Error("Failed to load data");
-      const [s, pa, pt, a, l, pl, bk, ptl, pay] = await Promise.all([
+      const [s, pa, pt, a, l, pl, bk, ptl, pay, updates, promos] = await Promise.all([
         statsRes.json(), pendingAccRes.json(), pendingTurfRes.json(), allRes.json(),
-        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json(), payoutsRes.json()
+        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json(), payoutsRes.json(), updatesRes.json(), promosRes.json()
       ]);
       setStats(s);
       setPendingAccounts(pa);
@@ -213,12 +258,86 @@ export default function Admin() {
       setPlayers(pl);
       setBookings(bk);
       setPayouts(pay);
+      setAdminUpdates(updates);
+      setPromoCodes(promos);
       setIsUnlocked(true);
     } catch (err: any) {
       toast({ title: "Access denied", description: err.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+    }
+  };
+
+  const handleCreateUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!updateTitle.trim() || !updateBody.trim()) return;
+    setIsPostingUpdate(true);
+    try {
+      const res = await adminFetch(`/api/admin/updates`, adminKey, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: updateTitle.trim(),
+          body: updateBody.trim(),
+          audience: "internal",
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to add update");
+      const update = await res.json();
+      setAdminUpdates(prev => [update, ...prev]);
+      setUpdateTitle("");
+      setUpdateBody("");
+      toast({ title: "Update saved", description: "It now appears in past updates." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Could not save update.", variant: "destructive" });
+    } finally {
+      setIsPostingUpdate(false);
+    }
+  };
+
+  const handleCreatePromo = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsCreatingPromo(true);
+    try {
+      const payload = {
+        code: promoForm.code,
+        description: promoForm.description || null,
+        discountType: promoForm.discountType,
+        discountValue: Number(promoForm.discountValue),
+        maxDiscountAmount: promoForm.maxDiscountAmount ? Number(promoForm.maxDiscountAmount) : null,
+        minBookingAmount: Number(promoForm.minBookingAmount || 0),
+        usageLimit: promoForm.usageLimit ? Number(promoForm.usageLimit) : null,
+        perUserLimit: Number(promoForm.perUserLimit || 1),
+        startDate: promoForm.startDate || null,
+        expiresAt: promoForm.expiresAt || null,
+        isActive: true,
+      };
+      const res = await adminFetch(`/api/admin/promos`, adminKey, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to create promo");
+      const promo = await res.json();
+      setPromoCodes(prev => [promo, ...prev]);
+      setPromoForm({
+        code: "",
+        description: "",
+        discountType: "fixed",
+        discountValue: "",
+        maxDiscountAmount: "",
+        minBookingAmount: "0",
+        usageLimit: "",
+        perUserLimit: "1",
+        startDate: "",
+        expiresAt: "",
+      });
+      toast({ title: "Promo code created", description: promo.code });
+    } catch (err: any) {
+      toast({ title: "Promo failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsCreatingPromo(false);
     }
   };
 
@@ -510,6 +629,8 @@ export default function Admin() {
     locations: "Locations",
     payouts: "Payout Ledger",
     search: "Global Search",
+    updates: "Admin Updates",
+    promos: "Promo Codes",
   };
 
   return (
@@ -672,6 +793,36 @@ export default function Admin() {
                   <p className="text-2xl font-bold text-foreground">{locations.length}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Cities on the platform</p>
                 </button>
+
+                <button type="button" onClick={() => setTab("updates")} data-testid="stat-updates"
+                  className="col-span-2 bg-card border border-border rounded-xl p-4 text-left hover:border-violet-400/40 hover:bg-violet-500/5 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                        <Hash className="w-3.5 h-3.5 text-violet-400" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">Admin Updates</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">{adminUpdates.length}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Past platform updates</p>
+                </button>
+
+                <button type="button" onClick={() => setTab("promos")} data-testid="stat-promos"
+                  className="col-span-2 bg-card border border-border rounded-xl p-4 text-left hover:border-emerald-400/40 hover:bg-emerald-500/5 transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                        <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                      </div>
+                      <span className="text-xs text-muted-foreground">Promo Codes</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">{promoCodes.length}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Discounts and limits</p>
+                </button>
               </div>
             </div>
           )}
@@ -716,6 +867,114 @@ export default function Admin() {
           )}
 
           {/* ── Pending Requests ── */}
+          {tab === "updates" && (
+            <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
+              <form onSubmit={handleCreateUpdate} className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Add update</p>
+                  <p className="text-xs text-muted-foreground">Keep a clean history of admin-side platform changes.</p>
+                </div>
+                <Input value={updateTitle} onChange={event => setUpdateTitle(event.target.value)} placeholder="Update title" className="bg-background border-border" data-testid="input-admin-update-title" />
+                <textarea
+                  value={updateBody}
+                  onChange={event => setUpdateBody(event.target.value)}
+                  placeholder="What changed?"
+                  rows={4}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+                  data-testid="textarea-admin-update-body"
+                />
+                <Button type="submit" className="w-full" disabled={isPostingUpdate || !updateTitle.trim() || !updateBody.trim()} data-testid="button-post-admin-update">
+                  {isPostingUpdate ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Save Update
+                </Button>
+              </form>
+
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Past updates{adminUpdates.length > 0 && ` - ${adminUpdates.length}`}
+                </p>
+                {adminUpdates.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Hash className="w-10 h-10 text-muted-foreground mb-3 opacity-40" />
+                    <p className="text-foreground font-medium">No updates yet</p>
+                    <p className="text-muted-foreground text-sm mt-1">Saved admin updates will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {adminUpdates.map(update => (
+                      <div key={update.id} className="bg-card border border-border rounded-xl p-4" data-testid={`card-admin-update-${update.id}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-foreground font-semibold text-sm">{update.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {new Date(update.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+                          <span className="text-[10px] font-semibold uppercase bg-violet-500/10 text-violet-400 px-2 py-1 rounded-md">{update.audience}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{update.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tab === "promos" && (
+            <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
+              <form onSubmit={handleCreatePromo} className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Create promo code</p>
+                <Input value={promoForm.code} onChange={e => setPromoForm(prev => ({ ...prev, code: e.target.value.toUpperCase() }))} placeholder="Code e.g. SUMMER20" className="bg-background" />
+                <Input value={promoForm.description} onChange={e => setPromoForm(prev => ({ ...prev, description: e.target.value }))} placeholder="Description" className="bg-background" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={promoForm.discountType} onChange={e => setPromoForm(prev => ({ ...prev, discountType: e.target.value }))} className="bg-background border border-border rounded-md px-3 py-2 text-sm">
+                    <option value="fixed">Fixed amount</option>
+                    <option value="percent">Percent</option>
+                  </select>
+                  <Input value={promoForm.discountValue} onChange={e => setPromoForm(prev => ({ ...prev, discountValue: e.target.value.replace(/\D/g, "") }))} placeholder="Value" inputMode="numeric" className="bg-background" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input value={promoForm.maxDiscountAmount} onChange={e => setPromoForm(prev => ({ ...prev, maxDiscountAmount: e.target.value.replace(/\D/g, "") }))} placeholder="Max discount" inputMode="numeric" className="bg-background" />
+                  <Input value={promoForm.minBookingAmount} onChange={e => setPromoForm(prev => ({ ...prev, minBookingAmount: e.target.value.replace(/\D/g, "") }))} placeholder="Min booking" inputMode="numeric" className="bg-background" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input value={promoForm.usageLimit} onChange={e => setPromoForm(prev => ({ ...prev, usageLimit: e.target.value.replace(/\D/g, "") }))} placeholder="Total usage limit" inputMode="numeric" className="bg-background" />
+                  <Input value={promoForm.perUserLimit} onChange={e => setPromoForm(prev => ({ ...prev, perUserLimit: e.target.value.replace(/\D/g, "") }))} placeholder="Per user limit" inputMode="numeric" className="bg-background" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="date" value={promoForm.startDate} onChange={e => setPromoForm(prev => ({ ...prev, startDate: e.target.value }))} className="bg-background" />
+                  <Input type="date" value={promoForm.expiresAt} onChange={e => setPromoForm(prev => ({ ...prev, expiresAt: e.target.value }))} className="bg-background" />
+                </div>
+                <Button type="submit" className="w-full" disabled={isCreatingPromo || !promoForm.code || !promoForm.discountValue}>
+                  {isCreatingPromo ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Create Promo
+                </Button>
+              </form>
+
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Existing promos - {promoCodes.length}</p>
+                {promoCodes.map(promo => (
+                  <div key={promo.id} className="bg-card border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-foreground">{promo.code}</p>
+                        {promo.description && <p className="text-xs text-muted-foreground mt-0.5">{promo.description}</p>}
+                      </div>
+                      <StatusBadge label={promo.isActive ? "Active" : "Inactive"} color={promo.isActive ? "green" : "red"} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-3 text-xs text-muted-foreground">
+                      <p>Discount: {promo.discountType === "percent" ? `${promo.discountValue}%` : `₹${promo.discountValue}`}</p>
+                      <p>Used: {promo.usedCount}{promo.usageLimit ? ` / ${promo.usageLimit}` : ""}</p>
+                      <p>Min: ₹{promo.minBookingAmount}</p>
+                      <p>Expires: {promo.expiresAt || "No expiry"}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {tab === "requests" && (
             <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
 

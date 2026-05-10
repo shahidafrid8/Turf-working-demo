@@ -57,6 +57,19 @@ export function registerBookingRoutes(app: Express) {
         requiredSlots.push(matchingSlot);
       }
 
+      if (validatedData.promoCode) {
+        const promo = await storage.validatePromoCode(
+          validatedData.promoCode,
+          requiredSlots.reduce((sum, slot) => sum + slot.price, 0),
+          req.session.userId,
+        );
+        if (promo.discountAmount !== (validatedData.discountAmount || 0)) {
+          return res.status(400).json({ error: "Promo discount has changed. Please reapply the promo code." }) as any;
+        }
+      } else if ((validatedData.discountAmount || 0) > 0) {
+        return res.status(400).json({ error: "Discount requires a valid promo code" }) as any;
+      }
+
       const booking = await storage.createBookingWithSlotLock(validatedData, requiredSlots.map(slot => slot.id));
       logger.info("booking.created", {
         bookingId: booking.id,

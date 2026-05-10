@@ -8,6 +8,7 @@ import {
   resolveOwnerIdForContext,
   safeUserResponse,
   sanitizeText,
+  bookingVerificationSchema,
   slotPriceSchema,
   staffRegisterSchema,
   turfSubmitSchema,
@@ -216,6 +217,27 @@ export function registerOwnerRoutes(app: Express) {
     const updated = await storage.markBookingPaid(req.params.id);
     logger.info("booking.payment_marked_paid", { bookingId: req.params.id, ownerId, turfId: booking.turfId });
     res.json(updated);
+  });
+
+  app.post("/api/owner/bookings/:id/verify", async (req: Request, res: Response) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
+    const ownerId = await resolveOwnerIdForContext(req.session.userId);
+    if (!ownerId) return res.status(403).json({ error: "Not authorized" }) as any;
+    const parsed = bookingVerificationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid verification code" }) as any;
+
+    const booking = await storage.getBooking(req.params.id);
+    if (!booking) return res.status(404).json({ error: "Booking not found" }) as any;
+    const turfs = await storage.getTurfsByOwnerId(ownerId);
+    if (!turfs.some(t => t.id === booking.turfId)) return res.status(403).json({ error: "Not your turf" }) as any;
+
+    try {
+      const updated = await storage.verifyBookingCode(req.params.id, parsed.data.code);
+      logger.info("booking.verification_code_verified", { bookingId: req.params.id, ownerId, turfId: booking.turfId });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err?.message || "Verification failed" });
+    }
   });
 
   app.post("/api/owner/bookings/:id/cancel", async (req: Request, res: Response) => {

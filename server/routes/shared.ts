@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import { insertBookingSchema, insertPricingRuleSchema } from "@shared/schema";
+import { insertBookingSchema, insertPricingRuleSchema, insertPromoCodeSchema } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { storage } from "../storage";
 
@@ -107,7 +107,13 @@ export const slotPriceSchema = z.object({
   applyToAllDays: z.boolean().optional().default(false),
 }).strict();
 
-const bookingRequestBaseSchema = insertBookingSchema.extend({
+const clientBookingSchema = insertBookingSchema.omit({
+  verificationCode: true,
+  verificationStatus: true,
+  checkedInAt: true,
+});
+
+const bookingRequestBaseSchema = clientBookingSchema.extend({
   turfId: z.string().min(1),
   turfName: z.string().min(1),
   turfAddress: z.string().min(1),
@@ -120,6 +126,11 @@ const bookingRequestBaseSchema = insertBookingSchema.extend({
   balanceAmount: z.number().int().nonnegative(),
   paymentMethod: z.enum(["upi", "card", "wallet", "cash", "venue"]),
   bookingCode: z.string().min(1).max(80),
+  promoCode: z.string().max(40).optional().nullable(),
+  discountAmount: z.number().int().min(0).max(100_000).optional().default(0),
+  travelDistanceKm: z.number().int().min(0).max(500).optional().nullable(),
+  travelEtaMinutes: z.number().int().min(0).max(24 * 60).optional().nullable(),
+  recommendedLeaveAt: z.string().max(80).optional().nullable(),
 }).strict();
 
 export const bookingRequestSchema = bookingRequestBaseSchema
@@ -208,6 +219,48 @@ export const adminLocationSchema = z.object({
 
 export const banUserSchema = z.object({
   reason: z.string().min(1).max(500),
+}).strict();
+
+export const adminUpdateSchema = z.object({
+  title: z.string().min(3).max(120),
+  body: z.string().min(3).max(1200),
+  audience: z.enum(["internal", "owners", "players", "all"]).default("internal"),
+}).strict();
+
+export const bookingVerificationSchema = z.object({
+  code: z.string().regex(/^\d{4}$/, "Enter the 4-digit verification code"),
+}).strict();
+
+export const promoCodeAdminSchema = insertPromoCodeSchema.extend({
+  code: z.string().min(3).max(40).transform((value) => value.trim().toUpperCase()),
+  description: z.string().max(240).optional().nullable(),
+  discountType: z.enum(["fixed", "percent"]),
+  discountValue: z.number().int().positive().max(100_000),
+  maxDiscountAmount: z.number().int().positive().max(100_000).optional().nullable(),
+  minBookingAmount: z.number().int().min(0).max(1_000_000).optional().default(0),
+  usageLimit: z.number().int().positive().max(1_000_000).optional().nullable(),
+  perUserLimit: z.number().int().positive().max(100).optional().default(1),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  expiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  isActive: z.boolean().optional().default(true),
+}).strict();
+
+export const promoValidationSchema = z.object({
+  code: z.string().min(3).max(40).transform((value) => value.trim().toUpperCase()),
+  bookingAmount: z.number().int().positive(),
+}).strict();
+
+export const travelEstimateSchema = z.object({
+  destination: z.string().min(3).max(500),
+  origin: z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+  }).optional(),
+  destinationCoordinates: z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+  }).optional(),
+  manualDistanceKm: z.number().positive().max(500).optional(),
 }).strict();
 
 // ── Safe user response (strips password, normalizes shape) ───────────────────

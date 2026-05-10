@@ -6,6 +6,7 @@ import { registerBookingRoutes } from "./routes/booking.routes";
 import { registerOwnerRoutes } from "./routes/owner.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerPlayerRoutes } from "./routes/player.routes";
+import { registerPromoRoutes } from "./routes/promo.routes";
 import { registerPublicRoutes } from "./routes/public.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
@@ -25,6 +26,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerOwnerRoutes(app);
   registerStaffRoutes(app);
   registerPaymentRoutes(app);
+  registerPromoRoutes(app);
   registerBookingRoutes(app);
   registerPlayerRoutes(app);
 

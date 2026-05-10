@@ -9,6 +9,7 @@ import logoImg from "@assets/image_1774343851801.png";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { formatLeaveAt, getDirectionsUrl } from "@/lib/travelEstimate";
 import type { Booking } from "@shared/schema";
 
 // ── Inline Review Form ──────────────────────────────────────────────────────
@@ -133,6 +134,13 @@ export default function Confirmation() {
     if (booking) {
       navigator.clipboard.writeText(booking.bookingCode);
       toast({ title: "Copied!", description: "Booking code copied to clipboard" });
+    }
+  };
+
+  const copyVerificationCode = () => {
+    if (booking?.verificationCode) {
+      navigator.clipboard.writeText(booking.verificationCode);
+      toast({ title: "Copied!", description: "Verification code copied" });
     }
   };
 
@@ -275,14 +283,59 @@ export default function Confirmation() {
 
           <Separator className="my-4" />
 
-          {/* QR Code Placeholder */}
           <div className="flex flex-col items-center py-4">
-            <div className="w-32 h-32 bg-white rounded-xl flex items-center justify-center mb-3">
-              <div className="w-28 h-28 bg-[repeating-conic-gradient(#000_0deg_90deg,#fff_90deg_180deg)] bg-[length:7px_7px] rounded-lg opacity-80" />
-            </div>
-            <p className="text-sm text-muted-foreground">Scan at venue for check-in</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Venue Verification Code</p>
+            <button
+              type="button"
+              onClick={copyVerificationCode}
+              className="mt-2 flex items-center gap-2 rounded-xl bg-primary/10 px-5 py-3 text-primary hover:bg-primary/15 transition-colors"
+              data-testid="button-copy-verification-code"
+            >
+              <span className="text-4xl font-black tracking-[0.35em] leading-none">
+                {booking.verificationCode}
+              </span>
+              <Copy className="w-4 h-4" />
+            </button>
+            <p className="text-sm text-muted-foreground mt-3 text-center">
+              Tell this 4-digit number at the turf. The turf team will verify it.
+            </p>
           </div>
         </Card>
+
+        {(booking.travelEtaMinutes || booking.recommendedLeaveAt) && (
+          <Card className="p-5 animate-slide-up" style={{ animationDelay: "75ms" }} data-testid="card-trip-reminder">
+            <h3 className="font-semibold text-foreground mb-3">Trip Reminder</h3>
+            <div className="space-y-2 text-sm">
+              {booking.travelDistanceKm ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Distance</span>
+                  <span className="font-medium text-foreground">{booking.travelDistanceKm} km</span>
+                </div>
+              ) : null}
+              {booking.travelEtaMinutes ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Estimated travel</span>
+                  <span className="font-medium text-foreground">{booking.travelEtaMinutes} min</span>
+                </div>
+              ) : null}
+              {booking.recommendedLeaveAt ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Start moving by</span>
+                  <span className="font-medium text-foreground">{formatLeaveAt(booking.recommendedLeaveAt)}</span>
+                </div>
+              ) : null}
+            </div>
+            <Button
+              variant="outline"
+              className="w-full mt-4"
+              onClick={() => window.open(getDirectionsUrl(booking), "_blank", "noopener,noreferrer")}
+              data-testid="button-open-directions"
+            >
+              <MapPin className="w-4 h-4 mr-2" />
+              Open Directions
+            </Button>
+          </Card>
+        )}
 
         {/* Payment Summary */}
         <Card className="p-5 animate-slide-up" style={{ animationDelay: "100ms" }} data-testid="card-payment-summary">
