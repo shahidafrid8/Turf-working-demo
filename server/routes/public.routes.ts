@@ -8,7 +8,18 @@ export function registerPublicRoutes(app: Express) {
 
   app.get("/api/updates", async (_req, res) => {
     const updates = await storage.getAdminUpdates();
-    res.json(updates.filter(update => update.audience === "players" || update.audience === "all"));
+    res.json(updates.filter(update =>
+      update.postType === "announcement" &&
+      (update.audience === "players" || update.audience === "all")
+    ));
+  });
+
+  app.get("/api/ads", async (_req, res) => {
+    const updates = await storage.getAdminUpdates();
+    res.json(updates.filter(update =>
+      update.postType === "advertisement" &&
+      (update.audience === "players" || update.audience === "all")
+    ));
   });
 
   app.get("/api/turfs", async (_req, res) => {

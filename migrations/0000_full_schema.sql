@@ -362,6 +362,10 @@ CREATE TABLE IF NOT EXISTS "admin_updates" (
   "title" text NOT NULL,
   "body" text NOT NULL,
   "audience" text DEFAULT 'internal' NOT NULL,
+  "post_type" text DEFAULT 'announcement' NOT NULL,
+  "image_url" text,
+  "cta_label" text,
+  "cta_url" text,
   "created_by" varchar,
   "created_at" timestamp DEFAULT now()
 );

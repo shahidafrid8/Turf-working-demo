@@ -216,6 +216,10 @@ export class MemStorage implements IStorage {
       title: "Booking verification codes are live",
       body: "Players now receive a 4-digit code after payment. Turf owners can verify the code from the booking card before check-in.",
       audience: "internal",
+      postType: "announcement",
+      imageUrl: null,
+      ctaLabel: null,
+      ctaUrl: null,
       createdBy: "system",
       createdAt: new Date(),
     };
@@ -1517,6 +1521,10 @@ export class MemStorage implements IStorage {
   async createAdminUpdate(insertUpdate: InsertAdminUpdate): Promise<AdminUpdate> {
     const update: AdminUpdate = {
       audience: "internal",
+      postType: "announcement",
+      imageUrl: null,
+      ctaLabel: null,
+      ctaUrl: null,
       createdBy: null,
       ...insertUpdate,
       id: randomUUID(),

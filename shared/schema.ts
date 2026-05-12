@@ -464,6 +464,10 @@ export const adminUpdates = pgTable("admin_updates", {
   title: text("title").notNull(),
   body: text("body").notNull(),
   audience: text("audience").notNull().default("internal"),
+  postType: text("post_type").notNull().default("announcement"),
+  imageUrl: text("image_url"),
+  ctaLabel: text("cta_label"),
+  ctaUrl: text("cta_url"),
   createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });

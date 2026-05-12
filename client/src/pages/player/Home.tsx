@@ -49,8 +49,8 @@ export default function Home() {
     enabled: !!user && user.role === "player",
   });
 
-  const { data: playerUpdates } = useQuery<AdminUpdate[]>({
-    queryKey: ["/api/updates"],
+  const { data: adBanners } = useQuery<AdminUpdate[]>({
+    queryKey: ["/api/ads"],
   });
 
   const notifications = useMemo(() => {
@@ -262,31 +262,6 @@ export default function Home() {
           </p>
         </section>
 
-        {playerUpdates && playerUpdates.length > 0 && (
-          <section className="space-y-3" data-testid="section-admin-post-updates">
-            {playerUpdates.slice(0, 3).map(update => (
-              <div key={update.id} className="rounded-xl border border-primary/20 bg-primary/10 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
-                    <Megaphone className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-foreground leading-tight">{update.title}</p>
-                      {update.createdAt && (
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {formatDistanceToNow(new Date(update.createdAt as any), { addSuffix: true })}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{update.body}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </section>
-        )}
-
         {/* Search Bar */}
         <section className="relative" data-testid="section-search">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
@@ -313,6 +288,45 @@ export default function Home() {
             )}
           </button>
         </section>
+
+        {adBanners && adBanners.length > 0 && (
+          <section className="space-y-3" data-testid="section-ad-banners">
+            {adBanners.slice(0, 3).map(ad => (
+              <div
+                key={ad.id}
+                className="relative overflow-hidden rounded-2xl border border-primary/20 bg-card min-h-[132px]"
+                data-testid={`card-ad-banner-${ad.id}`}
+              >
+                {ad.imageUrl ? (
+                  <img src={ad.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/25 via-emerald-500/10 to-background" />
+                )}
+                <div className="absolute inset-0 bg-black/45" />
+                <div className="relative p-4 text-white">
+                  <div className="mb-6 flex items-center gap-2">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90">
+                      <Megaphone className="h-4 w-4 text-primary-foreground" />
+                    </span>
+                    <span className="rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide backdrop-blur-sm">Sponsored</span>
+                  </div>
+                  <h2 className="text-xl font-bold leading-tight">{ad.title}</h2>
+                  <p className="mt-1 max-w-[78%] text-sm text-white/85 line-clamp-2">{ad.body}</p>
+                  {ad.ctaUrl && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(ad.ctaUrl || "", "_blank", "noopener,noreferrer")}
+                      className="mt-3 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
+                      data-testid={`button-ad-cta-${ad.id}`}
+                    >
+                      {ad.ctaLabel || "View Offer"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
 
         {/* Active filters indicator */}
         {hasActiveFilters && (

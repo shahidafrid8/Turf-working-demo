@@ -97,6 +97,10 @@ interface AdminUpdate {
   title: string;
   body: string;
   audience: "internal" | "owners" | "players" | "all";
+  postType: "announcement" | "advertisement";
+  imageUrl: string | null;
+  ctaLabel: string | null;
+  ctaUrl: string | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -200,6 +204,14 @@ export default function Admin() {
   const [updateBody, setUpdateBody] = useState("");
   const [updateAudience, setUpdateAudience] = useState<AdminUpdate["audience"]>("players");
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
+  const [adForm, setAdForm] = useState({
+    title: "",
+    body: "",
+    imageUrl: "",
+    ctaLabel: "",
+    ctaUrl: "",
+  });
+  const [isPostingAd, setIsPostingAd] = useState(false);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
   const [isAddingLocation, setIsAddingLocation] = useState(false);
@@ -282,6 +294,7 @@ export default function Admin() {
           title: updateTitle.trim(),
           body: updateBody.trim(),
           audience: updateAudience,
+          postType: "announcement",
         }),
       });
       if (!res.ok) throw new Error("Failed to add update");
@@ -295,6 +308,36 @@ export default function Admin() {
       toast({ title: "Error", description: err.message || "Could not save update.", variant: "destructive" });
     } finally {
       setIsPostingUpdate(false);
+    }
+  };
+
+  const handleCreateAd = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!adForm.title.trim() || !adForm.body.trim()) return;
+    setIsPostingAd(true);
+    try {
+      const res = await adminFetch(`/api/admin/updates`, adminKey, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: adForm.title.trim(),
+          body: adForm.body.trim(),
+          audience: "players",
+          postType: "advertisement",
+          imageUrl: adForm.imageUrl.trim() || null,
+          ctaLabel: adForm.ctaLabel.trim() || null,
+          ctaUrl: adForm.ctaUrl.trim() || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to post advertisement");
+      const ad = await res.json();
+      setAdminUpdates(prev => [ad, ...prev]);
+      setAdForm({ title: "", body: "", imageUrl: "", ctaLabel: "", ctaUrl: "" });
+      toast({ title: "Advertisement posted", description: "It will appear as a banner after search." });
+    } catch (err: any) {
+      toast({ title: "Ad failed", description: err.message || "Could not save advertisement.", variant: "destructive" });
+    } finally {
+      setIsPostingAd(false);
     }
   };
 
@@ -957,10 +1000,59 @@ export default function Admin() {
           {/* ── Pending Requests ── */}
           {tab === "updates" && (
             <div className="flex-1 px-4 py-5 overflow-y-auto space-y-6">
+              <form onSubmit={handleCreateAd} className="bg-card border border-primary/25 rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-primary uppercase tracking-wider mb-1">Post advertisement banner</p>
+                  <p className="text-xs text-muted-foreground">This appears as a banner after the player home search bar.</p>
+                </div>
+                <Input
+                  value={adForm.title}
+                  onChange={event => setAdForm(prev => ({ ...prev, title: event.target.value }))}
+                  placeholder="Ad title e.g. Weekend Cricket Offer"
+                  className="bg-background border-border"
+                  data-testid="input-admin-ad-title"
+                />
+                <textarea
+                  value={adForm.body}
+                  onChange={event => setAdForm(prev => ({ ...prev, body: event.target.value }))}
+                  placeholder="Short banner text"
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+                  data-testid="textarea-admin-ad-body"
+                />
+                <Input
+                  value={adForm.imageUrl}
+                  onChange={event => setAdForm(prev => ({ ...prev, imageUrl: event.target.value }))}
+                  placeholder="Banner image URL (optional)"
+                  className="bg-background border-border"
+                  data-testid="input-admin-ad-image"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    value={adForm.ctaLabel}
+                    onChange={event => setAdForm(prev => ({ ...prev, ctaLabel: event.target.value }))}
+                    placeholder="Button text"
+                    className="bg-background border-border"
+                    data-testid="input-admin-ad-cta-label"
+                  />
+                  <Input
+                    value={adForm.ctaUrl}
+                    onChange={event => setAdForm(prev => ({ ...prev, ctaUrl: event.target.value }))}
+                    placeholder="Button link URL"
+                    className="bg-background border-border"
+                    data-testid="input-admin-ad-cta-url"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isPostingAd || !adForm.title.trim() || !adForm.body.trim()} data-testid="button-post-admin-ad">
+                  {isPostingAd ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Post Advertisement
+                </Button>
+              </form>
+
               <form onSubmit={handleCreateUpdate} className="bg-card border border-border rounded-xl p-4 space-y-3">
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Add update</p>
-                  <p className="text-xs text-muted-foreground">Post admin updates internally or show them on the player home screen.</p>
+                  <p className="text-xs text-muted-foreground">Use this for announcement notes, not banner ads.</p>
                 </div>
                 <Input value={updateTitle} onChange={event => setUpdateTitle(event.target.value)} placeholder="Update title" className="bg-background border-border" data-testid="input-admin-update-title" />
                 <select
@@ -1009,9 +1101,14 @@ export default function Admin() {
                               {new Date(update.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                             </p>
                           </div>
-                          <span className="text-[10px] font-semibold uppercase bg-violet-500/10 text-violet-400 px-2 py-1 rounded-md">{update.audience}</span>
+                          <span className="text-[10px] font-semibold uppercase bg-violet-500/10 text-violet-400 px-2 py-1 rounded-md">
+                            {update.postType === "advertisement" ? "ad banner" : update.audience}
+                          </span>
                         </div>
                         <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{update.body}</p>
+                        {update.imageUrl && (
+                          <img src={update.imageUrl} alt="" className="mt-3 h-24 w-full rounded-lg object-cover" />
+                        )}
                       </div>
                     ))}
                   </div>

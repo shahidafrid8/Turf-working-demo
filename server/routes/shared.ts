@@ -225,6 +225,10 @@ export const adminUpdateSchema = z.object({
   title: z.string().min(3).max(120),
   body: z.string().min(3).max(1200),
   audience: z.enum(["internal", "owners", "players", "all"]).default("internal"),
+  postType: z.enum(["announcement", "advertisement"]).default("announcement"),
+  imageUrl: z.string().url("Enter a valid image URL").max(800).optional().nullable(),
+  ctaLabel: z.string().max(40).optional().nullable(),
+  ctaUrl: z.string().url("Enter a valid link URL").max(800).optional().nullable(),
 }).strict();
 
 export const bookingVerificationSchema = z.object({
