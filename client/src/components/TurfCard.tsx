@@ -1,9 +1,11 @@
-import { Star, MapPin, Clock } from "lucide-react";
+import { Heart, Star, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Turf } from "@shared/schema";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
+import { useFavoriteTurfs } from "@/lib/favorites";
 
 interface TurfCardProps {
   turf: Turf;
@@ -11,50 +13,69 @@ interface TurfCardProps {
 }
 
 export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
+  const [, setLocation] = useLocation();
+  const { isFavorite, toggleFavorite } = useFavoriteTurfs();
+  const favorited = isFavorite(turf.id);
+
+  const handleFavoriteClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFavorite(turf.id);
+  };
+
   if (variant === "featured") {
     return (
-      <Link href={`/booking/${turf.id}`}>
-        <Card 
-          className="relative overflow-hidden rounded-xl min-w-[280px] h-[200px] flex-shrink-0 group cursor-pointer hover-elevate"
-          data-testid={`card-turf-featured-${turf.id}`}
+      <Card
+        onClick={() => setLocation(`/booking/${turf.id}`)}
+        className="relative overflow-hidden rounded-xl min-w-[280px] h-[200px] flex-shrink-0 group cursor-pointer hover-elevate"
+        data-testid={`card-turf-featured-${turf.id}`}
+      >
+        <img
+          src={turf.imageUrl}
+          alt={turf.name}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+        <div className="absolute inset-0 turf-card-gradient" />
+
+        <button
+          type="button"
+          onClick={handleFavoriteClick}
+          aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+          className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+          data-testid={`button-favorite-${turf.id}`}
         >
-          <img
-            src={turf.imageUrl}
-            alt={turf.name}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-          <div className="absolute inset-0 turf-card-gradient" />
-          
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              {turf.isAvailable && (
-                <Badge className="bg-primary text-primary-foreground text-xs font-semibold">
-                  Available Now
-                </Badge>
-              )}
-            </div>
-            <h3 className="text-lg font-bold text-white mb-1">{turf.name}</h3>
-            <div className="flex items-center gap-2 text-white/80 text-sm">
-              <MapPin className="w-3.5 h-3.5" />
-              <span>{turf.location}</span>
-            </div>
+          <Heart className={cn("h-4 w-4", favorited && "fill-red-500 text-red-500")} />
+        </button>
+
+        <div className="absolute bottom-0 left-0 right-0 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            {turf.isAvailable && (
+              <Badge className="bg-primary text-primary-foreground text-xs font-semibold">
+                Available Now
+              </Badge>
+            )}
           </div>
-          
-          <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full">
-            <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-            <span className="text-white text-xs font-medium">{turf.rating}</span>
+          <h3 className="text-lg font-bold text-white mb-1">{turf.name}</h3>
+          <div className="flex items-center gap-2 text-white/80 text-sm">
+            <MapPin className="w-3.5 h-3.5" />
+            <span>{turf.location}</span>
           </div>
-        </Card>
-      </Link>
+        </div>
+
+        <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full">
+          <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+          <span className="text-white text-xs font-medium">{turf.rating}</span>
+        </div>
+      </Card>
     );
   }
 
   return (
-    <Link href={`/booking/${turf.id}`}>
-      <Card 
-        className="flex gap-4 p-3 hover-elevate cursor-pointer"
-        data-testid={`card-turf-${turf.id}`}
-      >
+    <Card
+      onClick={() => setLocation(`/booking/${turf.id}`)}
+      className="flex gap-4 p-3 hover-elevate cursor-pointer"
+      data-testid={`card-turf-${turf.id}`}
+    >
         <div className="relative w-24 h-24 rounded-lg overflow-hidden flex-shrink-0">
           <img
             src={turf.imageUrl}
@@ -66,6 +87,15 @@ export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
               <div className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse" />
             </div>
           )}
+          <button
+            type="button"
+            onClick={handleFavoriteClick}
+            aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+            className="absolute bottom-1.5 right-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white backdrop-blur-sm transition-colors hover:bg-black/80"
+            data-testid={`button-favorite-${turf.id}`}
+          >
+            <Heart className={cn("h-4 w-4", favorited && "fill-red-500 text-red-500")} />
+          </button>
         </div>
         
         <div className="flex-1 min-w-0">
@@ -101,12 +131,20 @@ export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
               <span className="text-sm">From</span>
               <span className="text-base">₹{turf.pricePerHour}/hr</span>
             </div>
-            <Button size="sm" className="h-7 text-xs px-3" data-testid={`button-book-${turf.id}`}>
+            <Button
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setLocation(`/booking/${turf.id}`);
+              }}
+              data-testid={`button-book-${turf.id}`}
+            >
               Book
             </Button>
           </div>
         </div>
       </Card>
-    </Link>
   );
 }
