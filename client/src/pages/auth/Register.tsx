@@ -12,6 +12,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const usernameRegex = /^(?!.*\.\.)(?!.*\.$)[a-zA-Z0-9_][a-zA-Z0-9_.]{0,28}[a-zA-Z0-9_]$|^[a-zA-Z0-9_]$/;
+const labelClass = "text-foreground text-base font-semibold";
+const inputClass = "bg-card border-border text-base placeholder:text-sm placeholder:text-muted-foreground/60";
+const passwordInputClass = `${inputClass} pr-10`;
 
 const schema = z.object({
   username: z
@@ -133,14 +136,14 @@ export default function Register() {
               name="username"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Username</FormLabel>
+                  <FormLabel className={labelClass}>Username</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
                       data-testid="input-username"
                       placeholder="e.g. cricket_legend"
                       autoComplete="username"
-                      className="bg-card border-border"
+                      className={inputClass}
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -157,14 +160,14 @@ export default function Register() {
               name="fullName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Full name (optional)</FormLabel>
+                  <FormLabel className={labelClass}>Full name (optional)</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
                       data-testid="input-full-name"
                       placeholder="e.g. Rahul Sharma"
                       autoComplete="name"
-                      className="bg-card border-border"
+                      className={inputClass}
                     />
                   </FormControl>
                   <FormMessage />
@@ -178,7 +181,7 @@ export default function Register() {
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Gmail address</FormLabel>
+                  <FormLabel className={labelClass}>Gmail address</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -187,7 +190,7 @@ export default function Register() {
                       placeholder="yourname@gmail.com"
                       autoComplete="email"
                       inputMode="email"
-                      className="bg-card border-border"
+                      className={inputClass}
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -204,7 +207,7 @@ export default function Register() {
               name="phoneNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Phone number</FormLabel>
+                  <FormLabel className={labelClass}>Phone number</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -213,7 +216,7 @@ export default function Register() {
                       placeholder="10-digit number"
                       inputMode="numeric"
                       maxLength={10}
-                      className="bg-card border-border"
+                      className={inputClass}
                     />
                   </FormControl>
                   <FormMessage />
@@ -227,7 +230,7 @@ export default function Register() {
               name="dateOfBirth"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Date of birth</FormLabel>
+                  <FormLabel className={labelClass}>Date of birth</FormLabel>
                   <FormControl>
                     <DobPicker value={field.value} onChange={field.onChange} />
                   </FormControl>
@@ -242,7 +245,7 @@ export default function Register() {
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Password</FormLabel>
+                  <FormLabel className={labelClass}>Password</FormLabel>
                   <FormControl>
                     <div className="relative">
                       <Input
@@ -251,7 +254,7 @@ export default function Register() {
                         type={showPassword ? "text" : "password"}
                         placeholder="At least 6 characters"
                         autoComplete="new-password"
-                        className="bg-card border-border pr-10"
+                        className={passwordInputClass}
                       />
                       <button
                         type="button"
@@ -277,7 +280,7 @@ export default function Register() {
               name="confirmPassword"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-muted-foreground text-sm">Confirm password</FormLabel>
+                  <FormLabel className={labelClass}>Confirm password</FormLabel>
                   <FormControl>
                     <div className="relative">
                       <Input
@@ -286,7 +289,7 @@ export default function Register() {
                         type={showConfirm ? "text" : "password"}
                         placeholder="Re-enter your password"
                         autoComplete="new-password"
-                        className="bg-card border-border pr-10"
+                        className={passwordInputClass}
                       />
                       <button
                         type="button"

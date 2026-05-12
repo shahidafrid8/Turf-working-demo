@@ -12,6 +12,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const usernameRegex = /^(?!.*\.\.)(?!.*\.$)[a-zA-Z0-9_][a-zA-Z0-9_.]{0,28}[a-zA-Z0-9_]$|^[a-zA-Z0-9_]$/;
+const labelClass = "text-foreground text-base font-semibold";
+const inputClass = "bg-card border-border text-base placeholder:text-sm placeholder:text-muted-foreground/60";
+const passwordInputClass = `${inputClass} pr-10`;
 
 const schema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters").max(80),
@@ -92,9 +95,9 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="fullName" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Full name</FormLabel>
+                    <FormLabel className={labelClass}>Full name</FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-full-name" placeholder="e.g. Arjun Sharma" className="bg-card border-border" />
+                      <Input {...field} data-testid="input-full-name" placeholder="e.g. Arjun Sharma" className={inputClass} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -102,9 +105,9 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="username" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Username</FormLabel>
+                    <FormLabel className={labelClass}>Username</FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-username" placeholder="e.g. green_valley_cricket" className="bg-card border-border" />
+                      <Input {...field} data-testid="input-username" placeholder="e.g. green_valley_cricket" className={inputClass} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -112,9 +115,9 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="email" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Gmail address</FormLabel>
+                    <FormLabel className={labelClass}>Gmail address</FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-email" type="email" placeholder="yourname@gmail.com" className="bg-card border-border" />
+                      <Input {...field} data-testid="input-email" type="email" placeholder="yourname@gmail.com" className={inputClass} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -122,9 +125,9 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="phoneNumber" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Phone number</FormLabel>
+                    <FormLabel className={labelClass}>Phone number</FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-phone" type="tel" placeholder="10-digit number" inputMode="numeric" maxLength={10} className="bg-card border-border" />
+                      <Input {...field} data-testid="input-phone" type="tel" placeholder="10-digit number" inputMode="numeric" maxLength={10} className={inputClass} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -132,7 +135,7 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="dateOfBirth" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Date of birth</FormLabel>
+                    <FormLabel className={labelClass}>Date of birth</FormLabel>
                     <FormControl>
                       <DobPicker value={field.value} onChange={field.onChange} />
                     </FormControl>
@@ -142,10 +145,10 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="password" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Password</FormLabel>
+                    <FormLabel className={labelClass}>Password</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Input {...field} data-testid="input-password" type={showPassword ? "text" : "password"} placeholder="At least 6 characters" autoComplete="new-password" className="bg-card border-border pr-10" />
+                        <Input {...field} data-testid="input-password" type={showPassword ? "text" : "password"} placeholder="At least 6 characters" autoComplete="new-password" className={passwordInputClass} />
                         <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -157,10 +160,10 @@ export default function TurfOwnerRegister() {
 
                 <FormField control={form.control} name="confirmPassword" render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-muted-foreground text-sm">Confirm password</FormLabel>
+                    <FormLabel className={labelClass}>Confirm password</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Input {...field} data-testid="input-confirm-password" type={showConfirm ? "text" : "password"} placeholder="Re-enter your password" autoComplete="new-password" className="bg-card border-border pr-10" />
+                        <Input {...field} data-testid="input-confirm-password" type={showConfirm ? "text" : "password"} placeholder="Re-enter your password" autoComplete="new-password" className={passwordInputClass} />
                         <button type="button" onClick={() => setShowConfirm(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                           {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
