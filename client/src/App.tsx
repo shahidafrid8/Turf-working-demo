@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +26,53 @@ import TurfOwnerHome from "@/pages/owner/TurfOwnerHome";
 import TurfStaffHome from "@/pages/staff/TurfStaffHome";
 import Admin from "@/pages/admin/Admin";
 import NotFound from "@/pages/not-found";
+
+const SPLASH_STORAGE_KEY = "quickturf:splash-seen";
+const SPLASH_FALLBACK_MS = 7000;
+
+function SplashIntro() {
+  const [isVisible, setIsVisible] = useState(() => sessionStorage.getItem(SPLASH_STORAGE_KEY) !== "true");
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const timer = window.setTimeout(() => {
+      sessionStorage.setItem(SPLASH_STORAGE_KEY, "true");
+      setIsVisible(false);
+    }, SPLASH_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [isVisible]);
+
+  const finishSplash = () => {
+    sessionStorage.setItem(SPLASH_STORAGE_KEY, "true");
+    setIsVisible(false);
+  };
+
+  if (!isVisible) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black">
+      <video
+        className="h-full w-full object-cover"
+        src="/quickturf-splash.mp4"
+        autoPlay
+        muted
+        playsInline
+        preload="auto"
+        onEnded={finishSplash}
+        onError={finishSplash}
+        data-testid="video-app-splash"
+      />
+      <button
+        type="button"
+        onClick={finishSplash}
+        className="absolute right-4 top-4 rounded-full bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+        data-testid="button-skip-splash"
+      >
+        Skip
+      </button>
+    </div>
+  );
+}
 
 function Loading() {
   return (
@@ -151,6 +199,7 @@ function App() {
         <ErrorBoundary>
           <AuthProvider>
             <AppContent />
+            <SplashIntro />
             <Toaster />
           </AuthProvider>
         </ErrorBoundary>
