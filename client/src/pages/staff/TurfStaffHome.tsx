@@ -225,7 +225,7 @@ function EditTurfPanel({ turf, onSuccess }: { turf: Turf; onSuccess: () => void 
     try {
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
@@ -922,7 +922,7 @@ function TurfSubmitForm() {
     try {
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
@@ -1104,7 +1104,7 @@ function NewTurfForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     const previewUrl = URL.createObjectURL(file);
     try {
       const fd = new FormData(); fd.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);

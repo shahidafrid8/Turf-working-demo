@@ -226,7 +226,11 @@ export const adminUpdateSchema = z.object({
   body: z.string().min(3).max(1200),
   audience: z.enum(["internal", "owners", "players", "all"]).default("internal"),
   postType: z.enum(["announcement", "advertisement"]).default("announcement"),
-  imageUrl: z.string().url("Enter a valid image URL").max(800).optional().nullable(),
+  imageUrl: z.string()
+    .max(800)
+    .refine(value => value.startsWith("/uploads/") || z.string().url().safeParse(value).success, "Enter a valid image URL or upload an image")
+    .optional()
+    .nullable(),
   ctaLabel: z.string().max(40).optional().nullable(),
   ctaUrl: z.string().url("Enter a valid link URL").max(800).optional().nullable(),
 }).strict();

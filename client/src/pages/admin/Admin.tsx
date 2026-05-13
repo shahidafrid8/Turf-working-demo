@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ChevronLeft, ShieldCheck, CheckCircle, XCircle, Eye, EyeOff,
@@ -212,6 +212,8 @@ export default function Admin() {
     ctaUrl: "",
   });
   const [isPostingAd, setIsPostingAd] = useState(false);
+  const [isUploadingAdImage, setIsUploadingAdImage] = useState(false);
+  const adImageInputRef = useRef<HTMLInputElement>(null);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState("");
   const [isAddingLocation, setIsAddingLocation] = useState(false);
@@ -338,6 +340,35 @@ export default function Admin() {
       toast({ title: "Ad failed", description: err.message || "Could not save advertisement.", variant: "destructive" });
     } finally {
       setIsPostingAd(false);
+    }
+  };
+
+  const handleAdImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const allowed = ["image/jpeg", "image/jpg", "image/png"];
+    if (!allowed.includes(file.type)) {
+      toast({ title: "Invalid image", description: "Only PNG and JPEG images are allowed.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image too large", description: "Upload an image under 5 MB.", variant: "destructive" });
+      return;
+    }
+    setIsUploadingAdImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
+      const { url } = await res.json();
+      setAdForm(prev => ({ ...prev, imageUrl: url }));
+      toast({ title: "Image uploaded", description: "The banner image is attached to this advertisement." });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message || "Could not upload image.", variant: "destructive" });
+    } finally {
+      setIsUploadingAdImage(false);
+      if (adImageInputRef.current) adImageInputRef.current.value = "";
     }
   };
 
@@ -1023,10 +1054,36 @@ export default function Admin() {
                 <Input
                   value={adForm.imageUrl}
                   onChange={event => setAdForm(prev => ({ ...prev, imageUrl: event.target.value }))}
-                  placeholder="Banner image URL (optional)"
+                  placeholder="Banner image URL or uploaded image path"
                   className="bg-background border-border"
                   data-testid="input-admin-ad-image"
                 />
+                <input
+                  ref={adImageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg"
+                  className="hidden"
+                  onChange={handleAdImageUpload}
+                  data-testid="input-admin-ad-image-file"
+                />
+                <div className="grid grid-cols-[auto,1fr] gap-3 items-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => adImageInputRef.current?.click()}
+                    disabled={isUploadingAdImage}
+                    data-testid="button-upload-admin-ad-image"
+                  >
+                    {isUploadingAdImage ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileImage className="w-4 h-4 mr-2" />}
+                    Upload image
+                  </Button>
+                  {adForm.imageUrl && (
+                    <div className="h-12 overflow-hidden rounded-md border border-border bg-background">
+                      <img src={adForm.imageUrl} alt="" className="h-full w-full object-cover" />
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     value={adForm.ctaLabel}

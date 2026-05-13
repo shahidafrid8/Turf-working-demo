@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles, Megaphone } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -19,6 +19,46 @@ import { formatDistanceToNow, format } from "date-fns";
 import { useSEO } from "@/lib/seo";
 
 const sportFilters = ["All", "Cricket", "Football", "Basketball", "Tennis", "Badminton"];
+
+function AdSenseBanner() {
+  const env = (import.meta as any).env || {};
+  const client = env.VITE_GOOGLE_ADSENSE_CLIENT;
+  const slot = env.VITE_GOOGLE_ADSENSE_HOME_SLOT;
+
+  useEffect(() => {
+    if (!client || document.querySelector(`script[data-adsbygoogle-client="${client}"]`)) return;
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`;
+    script.crossOrigin = "anonymous";
+    script.dataset.adsbygoogleClient = client;
+    document.head.appendChild(script);
+  }, [client]);
+
+  useEffect(() => {
+    if (!client || !slot) return;
+    try {
+      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+    } catch {
+      // Google fills this asynchronously when AdSense is configured for the domain.
+    }
+  }, [client, slot]);
+
+  if (!client || !slot) return null;
+
+  return (
+    <section data-testid="section-google-adsense" className="overflow-hidden rounded-lg bg-card/60">
+      <ins
+        className="adsbygoogle block min-h-[90px]"
+        style={{ display: "block" }}
+        data-ad-client={client}
+        data-ad-slot={slot}
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </section>
+  );
+}
 
 export default function Home() {
   useSEO({
@@ -327,6 +367,8 @@ export default function Home() {
             ))}
           </section>
         )}
+
+        <AdSenseBanner />
 
         {/* Active filters indicator */}
         {hasActiveFilters && (

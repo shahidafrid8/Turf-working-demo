@@ -96,6 +96,45 @@ export function registerOwnerRoutes(app: Express) {
     res.json(turfs);
   });
 
+  app.post("/api/owner/turfs", async (req: Request, res: Response) => {
+    if (!(await requireOwnerOnly(req, res))) return;
+    const owner = await storage.getUser(req.session.userId!);
+    if (!owner || owner.ownerStatus !== "account_approved") {
+      return res.status(403).json({ error: "Account must be approved before submitting a turf" }) as any;
+    }
+
+    const parsed = turfSubmitSchema.safeParse({
+      turfName: req.body?.turfName ?? req.body?.name,
+      turfLocation: req.body?.turfLocation ?? req.body?.location,
+      turfAddress: req.body?.turfAddress ?? req.body?.address,
+      turfPincode: req.body?.turfPincode ?? req.body?.pincode,
+      turfImageUrls: req.body?.turfImageUrls ?? req.body?.imageUrls,
+      turfLength: req.body?.turfLength ?? req.body?.length,
+      turfWidth: req.body?.turfWidth ?? req.body?.width,
+    });
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid turf data" }) as any;
+    }
+
+    try {
+      const application = await storage.submitAdditionalTurf(owner.id, parsed.data);
+      logger.info("owner.turf.additional_submitted", { ownerId: owner.id, applicationId: application.id });
+      res.status(201).json({
+        id: application.id,
+        ownerId: owner.id,
+        applicationId: application.id,
+        name: application.turfName,
+        location: application.turfLocation,
+        address: application.turfAddress,
+        imageUrl: application.turfImageUrls?.[0] || null,
+        isAvailable: false,
+        pendingStatus: "pending_review",
+      });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err?.message || "Turf submission failed" });
+    }
+  });
+
   app.get("/api/owner/turfs/:turfId/slots/:date", async (req: Request, res: Response) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" }) as any;
     const ownerId = await resolveOwnerIdForContext(req.session.userId);

@@ -299,7 +299,7 @@ function EditTurfPanel({ turf, onSuccess }: { turf: Turf; onSuccess: () => void 
     try {
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
@@ -1051,7 +1051,7 @@ function TurfSubmitForm() {
     try {
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
@@ -1234,7 +1234,7 @@ function NewTurfForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     const previewUrl = URL.createObjectURL(file);
     try {
       const fd = new FormData(); fd.append("image", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Upload failed");
       const { url } = await res.json();
       setImages(prev => [...prev, { url, previewUrl, name: file.name }]);
@@ -1515,7 +1515,7 @@ export default function TurfOwnerHome() {
 
   const { data: turfs = [] } = useQuery<Turf[]>({
     queryKey: ["/api/owner/turfs"],
-    enabled: user?.role === "turf_staff" || user?.turfStatus === "turf_approved",
+    enabled: user?.role === "turf_staff" || user?.ownerStatus === "account_approved",
     select: (data) => data as any[],
   });
 
@@ -1647,7 +1647,7 @@ export default function TurfOwnerHome() {
         )}
 
         {/* ── Turf Approved — Dashboard ──────── */}
-        {(user.role === "turf_staff" || (user.ownerStatus === "account_approved" && user.turfStatus === "turf_approved")) && (
+        {(user.role === "turf_staff" || (user.ownerStatus === "account_approved" && (user.turfStatus === "turf_approved" || approvedTurfs.length > 0))) && (
           <div>
             <div className="flex items-center gap-3 bg-primary/10 border border-primary/20 rounded-xl px-4 py-3 mb-6">
               <CheckCircle className="w-5 h-5 text-primary shrink-0" />

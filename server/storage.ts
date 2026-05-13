@@ -74,6 +74,7 @@ export interface IStorage {
   getTurf(id: string): Promise<Turf | undefined>;
   getTurfsByOwnerId(ownerId: string): Promise<Turf[]>;
   createTurf(turf: InsertTurf): Promise<Turf>;
+  submitAdditionalTurf(ownerId: string, turfData: { turfName: string; turfLocation: string; turfAddress: string; turfPincode: string; turfImageUrls: string[]; turfLength: number; turfWidth: number; pricePerHour?: number }): Promise<TurfApplication>;
   updateWeekendSurcharge(turfId: string, surcharge: number): Promise<Turf | undefined>;
 
   // Time Slots
@@ -190,6 +191,7 @@ export class MemStorage implements IStorage {
   private appFeedbacks: Map<string, AppFeedback>;
   private adminUpdates: Map<string, AdminUpdate>;
   private turfReviews: Map<string, TurfReview>;
+  private turfApplications: Map<string, TurfApplication>;
   private locations: string[];
   public isDatabaseEnabled: boolean;
   public readonly readyPromise: Promise<void>;
@@ -206,6 +208,7 @@ export class MemStorage implements IStorage {
     this.appFeedbacks = new Map();
     this.adminUpdates = new Map();
     this.turfReviews = new Map();
+    this.turfApplications = new Map();
     this.locations = [
       "Bangalore", "Chennai", "Mumbai", "Delhi",
       "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Nandyal",
@@ -361,7 +364,12 @@ export class MemStorage implements IStorage {
 
       // Build turfApps lookup for owner User construction
       const turfAppsByOwner = new Map<string, TurfApplication>();
-      for (const app of dbTurfApps) turfAppsByOwner.set(app.ownerId, app);
+      for (const app of dbTurfApps) {
+        const current = turfAppsByOwner.get(app.ownerId);
+        if (!current || new Date(app.submittedAt || 0).getTime() > new Date(current.submittedAt || 0).getTime()) {
+          turfAppsByOwner.set(app.ownerId, app);
+        }
+      }
 
       // Convert role-specific rows into unified User objects
       this.users = new Map();
@@ -409,6 +417,7 @@ export class MemStorage implements IStorage {
       this.appFeedbacks = new Map(dbFeedbacks.map((f) => [f.userId, f]));
       this.adminUpdates = new Map(dbAdminUpdates.map((u) => [u.id, u]));
       this.turfReviews = new Map(dbReviews.map((r) => [r.id, r]));
+      this.turfApplications = new Map(dbTurfApps.map((app) => [app.id, app]));
     } catch (error) {
       console.error("[storage] Failed loading from database; falling back to in-memory seed data", error);
       this.isDatabaseEnabled = false;
@@ -441,14 +450,33 @@ export class MemStorage implements IStorage {
     const authValues = allUsers.map(u => ({
       email: u.email, phoneNumber: u.phoneNumber, role: u.role, roleTableId: u.id,
     }));
-    const turfAppValues = allUsers
-      .filter(u => u.role === "turf_owner" && u.turfName)
-      .map(u => ({
-        ownerId: u.id, turfName: u.turfName!, turfLocation: u.turfLocation || "",
-        turfAddress: u.turfAddress || "", turfPincode: u.turfPincode || "000000",
-        turfImageUrls: u.turfImageUrls, turfLength: u.turfLength, turfWidth: u.turfWidth,
-        status: u.turfStatus === "turf_approved" ? "approved" : u.turfStatus === "turf_rejected" ? "rejected" : "pending",
-      }));
+    for (const u of allUsers.filter(u => u.role === "turf_owner" && u.turfName)) {
+      const hasApplication = Array.from(this.turfApplications.values()).some(app =>
+        app.ownerId === u.id &&
+        app.turfName === u.turfName &&
+        app.turfAddress === (u.turfAddress || "")
+      );
+      if (!hasApplication) {
+        const id = randomUUID();
+        this.turfApplications.set(id, {
+          id,
+          ownerId: u.id,
+          turfName: u.turfName!,
+          turfLocation: u.turfLocation || "",
+          turfAddress: u.turfAddress || "",
+          turfPincode: u.turfPincode || "000000",
+          turfImageUrls: u.turfImageUrls,
+          turfLength: u.turfLength,
+          turfWidth: u.turfWidth,
+          status: u.turfStatus === "turf_approved" ? "approved" : u.turfStatus === "turf_rejected" ? "rejected" : "pending",
+          rejectionReason: null,
+          reviewedBy: null,
+          submittedAt: new Date(),
+          reviewedAt: null,
+        });
+      }
+    }
+    const turfAppValues = Array.from(this.turfApplications.values());
     const turfsValues = Array.from(this.turfs.values());
     const slotValues = Array.from(this.timeSlots.values());
     const bookingValues = Array.from(this.bookings.values());
@@ -585,21 +613,49 @@ export class MemStorage implements IStorage {
   async updateTurfStatus(id: string, status: "turf_approved" | "turf_rejected"): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
-    const updated = { ...user, turfStatus: status };
+    const pendingApp = Array.from(this.turfApplications.values())
+      .filter(app => app.ownerId === id && app.status === "pending")
+      .sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime())[0];
+    const ownerHasApprovedTurf = Array.from(this.turfs.values()).some(turf => turf.ownerId === id);
+    const nextTurfStatus = status === "turf_rejected" && ownerHasApprovedTurf ? "turf_approved" : status;
+    const updated = {
+      ...user,
+      turfStatus: nextTurfStatus,
+      turfName: pendingApp?.turfName ?? user.turfName,
+      turfLocation: pendingApp?.turfLocation ?? user.turfLocation,
+      turfAddress: pendingApp?.turfAddress ?? user.turfAddress,
+      turfPincode: pendingApp?.turfPincode ?? user.turfPincode,
+      turfImageUrls: pendingApp?.turfImageUrls ?? user.turfImageUrls,
+      turfLength: pendingApp?.turfLength ?? user.turfLength,
+      turfWidth: pendingApp?.turfWidth ?? user.turfWidth,
+    };
     this.users.set(id, updated);
 
-    if (status === "turf_approved" && user.turfName && user.turfLocation && user.turfAddress) {
+    if (pendingApp) {
+      this.turfApplications.set(pendingApp.id, {
+        ...pendingApp,
+        status: status === "turf_approved" ? "approved" : "rejected",
+        reviewedAt: new Date(),
+      });
+    }
+
+    const turfName = pendingApp?.turfName ?? user.turfName;
+    const turfLocation = pendingApp?.turfLocation ?? user.turfLocation;
+    const turfAddress = pendingApp?.turfAddress ?? user.turfAddress;
+    const turfImageUrls = pendingApp?.turfImageUrls ?? user.turfImageUrls;
+
+    if (status === "turf_approved" && turfName && turfLocation && turfAddress) {
       const turfId = randomUUID();
-      const imageUrl = (user.turfImageUrls && user.turfImageUrls.length > 0)
-        ? user.turfImageUrls[0]
+      const imageUrl = (turfImageUrls && turfImageUrls.length > 0)
+        ? turfImageUrls[0]
         : turfImages[0];
       const turf: Turf = {
         id: turfId,
         ownerId: user.id,
-        applicationId: null,
-        name: user.turfName,
-        location: user.turfLocation,
-        address: user.turfAddress,
+        applicationId: pendingApp?.id ?? null,
+        name: turfName,
+        location: turfLocation,
+        address: turfAddress,
         imageUrl,
         rating: 5,
         amenities: ["Parking"],
@@ -630,8 +686,26 @@ export class MemStorage implements IStorage {
   async submitTurf(id: string, turfData: { turfName: string; turfLocation: string; turfAddress: string; turfPincode: string; turfImageUrls: string[]; turfLength: number; turfWidth: number }): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
+    const application = this.createTurfApplication(id, turfData);
     const updated: User = {
       ...user,
+      turfName: application.turfName,
+      turfLocation: application.turfLocation,
+      turfAddress: application.turfAddress,
+      turfPincode: application.turfPincode,
+      turfImageUrls: application.turfImageUrls,
+      turfLength: application.turfLength,
+      turfWidth: application.turfWidth,
+      turfStatus: "pending_turf",
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  private createTurfApplication(ownerId: string, turfData: { turfName: string; turfLocation: string; turfAddress: string; turfPincode: string; turfImageUrls: string[]; turfLength: number; turfWidth: number }): TurfApplication {
+    const application: TurfApplication = {
+      id: randomUUID(),
+      ownerId,
       turfName: turfData.turfName,
       turfLocation: turfData.turfLocation,
       turfAddress: turfData.turfAddress,
@@ -639,10 +713,34 @@ export class MemStorage implements IStorage {
       turfImageUrls: turfData.turfImageUrls,
       turfLength: turfData.turfLength,
       turfWidth: turfData.turfWidth,
-      turfStatus: "pending_turf",
+      status: "pending",
+      rejectionReason: null,
+      reviewedBy: null,
+      submittedAt: new Date(),
+      reviewedAt: null,
     };
-    this.users.set(id, updated);
-    return updated;
+    this.turfApplications.set(application.id, application);
+    return application;
+  }
+
+  async submitAdditionalTurf(ownerId: string, turfData: { turfName: string; turfLocation: string; turfAddress: string; turfPincode: string; turfImageUrls: string[]; turfLength: number; turfWidth: number; pricePerHour?: number }): Promise<TurfApplication> {
+    const owner = this.users.get(ownerId);
+    if (!owner || owner.role !== "turf_owner") {
+      throw Object.assign(new Error("Owner not found"), { status: 404 });
+    }
+    const application = this.createTurfApplication(ownerId, turfData);
+    this.users.set(ownerId, {
+      ...owner,
+      turfStatus: owner.turfStatus === "turf_approved" ? "turf_approved" : "pending_turf",
+      turfName: application.turfName,
+      turfLocation: application.turfLocation,
+      turfAddress: application.turfAddress,
+      turfPincode: application.turfPincode,
+      turfImageUrls: application.turfImageUrls,
+      turfLength: application.turfLength,
+      turfWidth: application.turfWidth,
+    });
+    return application;
   }
 
   async getPendingAccounts(): Promise<User[]> {
@@ -652,7 +750,23 @@ export class MemStorage implements IStorage {
   }
 
   async getPendingTurfs(): Promise<User[]> {
-    return Array.from(this.users.values()).filter(u => u.role === "turf_owner" && u.ownerStatus === "account_approved" && u.turfStatus === "pending_turf");
+    const pending: User[] = [];
+    for (const app of Array.from(this.turfApplications.values()).filter(app => app.status === "pending")) {
+      const owner = this.users.get(app.ownerId);
+      if (!owner) continue;
+      pending.push({
+        ...owner,
+        turfStatus: "pending_turf",
+        turfName: app.turfName,
+        turfLocation: app.turfLocation,
+        turfAddress: app.turfAddress,
+        turfPincode: app.turfPincode,
+        turfImageUrls: app.turfImageUrls,
+        turfLength: app.turfLength,
+        turfWidth: app.turfWidth,
+      });
+    }
+    return pending;
   }
 
   async getAllOwners(): Promise<User[]> {
@@ -706,7 +820,32 @@ export class MemStorage implements IStorage {
   }
 
   async getTurfsByOwnerId(ownerId: string): Promise<Turf[]> {
-    return Array.from(this.turfs.values()).filter(t => t.ownerId === ownerId);
+    const realTurfs = Array.from(this.turfs.values()).filter(t => t.ownerId === ownerId);
+    const approvedApplicationIds = new Set(realTurfs.map(t => t.applicationId).filter(Boolean));
+    const applicationTurfs = Array.from(this.turfApplications.values())
+      .filter(app => app.ownerId === ownerId && app.status !== "approved" && !approvedApplicationIds.has(app.id))
+      .map(app => ({
+        id: app.id,
+        ownerId,
+        applicationId: app.id,
+        name: app.turfName,
+        location: app.turfLocation,
+        address: app.turfAddress,
+        imageUrl: app.turfImageUrls?.[0] || turfImages[0],
+        rating: 5,
+        amenities: ["Parking"],
+        sportTypes: ["Cricket"],
+        pricePerHour: 1000,
+        weekendSurcharge: 0,
+        isAvailable: false,
+        featured: false,
+        openTime: null,
+        closeTime: null,
+        createdAt: app.submittedAt,
+        updatedAt: app.reviewedAt,
+        pendingStatus: app.status === "rejected" ? "rejected" : "pending_review",
+      } as Turf & { pendingStatus: string }));
+    return [...realTurfs, ...applicationTurfs];
   }
 
   async createTurf(insertTurf: InsertTurf): Promise<Turf> {
@@ -1651,6 +1790,7 @@ const mutatingMethods = new Set<keyof IStorage>([
   "updateOwnerStatus",
   "updateTurfStatus",
   "submitTurf",
+  "submitAdditionalTurf",
   "deleteUser",
   "banUser",
   "unbanUser",
