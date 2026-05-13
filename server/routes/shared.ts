@@ -233,7 +233,16 @@ export const adminUpdateSchema = z.object({
     .nullable(),
   ctaLabel: z.string().max(40).optional().nullable(),
   ctaUrl: z.string().url("Enter a valid link URL").max(800).optional().nullable(),
+  isActive: z.boolean().optional().default(true),
+  showSponsored: z.boolean().optional().default(true),
 }).strict();
+
+export const adminUpdateVisibilitySchema = z.object({
+  isActive: z.boolean().optional(),
+  showSponsored: z.boolean().optional(),
+}).strict().refine(data => data.isActive !== undefined || data.showSponsored !== undefined, {
+  message: "Nothing to update",
+});
 
 export const bookingVerificationSchema = z.object({
   code: z.string().regex(/^\d{4}$/, "Enter the 4-digit verification code"),

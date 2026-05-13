@@ -101,6 +101,8 @@ interface AdminUpdate {
   imageUrl: string | null;
   ctaLabel: string | null;
   ctaUrl: string | null;
+  isActive: boolean;
+  showSponsored: boolean;
   createdBy: string | null;
   createdAt: string;
 }
@@ -210,6 +212,7 @@ export default function Admin() {
     imageUrl: "",
     ctaLabel: "",
     ctaUrl: "",
+    showSponsored: true,
   });
   const [isPostingAd, setIsPostingAd] = useState(false);
   const [isUploadingAdImage, setIsUploadingAdImage] = useState(false);
@@ -327,12 +330,14 @@ export default function Admin() {
           imageUrl: adForm.imageUrl.trim() || null,
           ctaLabel: adForm.ctaLabel.trim() || null,
           ctaUrl: adForm.ctaUrl.trim() || null,
+          showSponsored: adForm.showSponsored,
+          isActive: true,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to post advertisement");
       const ad = await res.json();
       setAdminUpdates(prev => [ad, ...prev]);
-      setAdForm({ title: "", body: "", imageUrl: "", ctaLabel: "", ctaUrl: "" });
+      setAdForm({ title: "", body: "", imageUrl: "", ctaLabel: "", ctaUrl: "", showSponsored: true });
       toast({ title: "Advertisement posted", description: "It will appear as a banner after search." });
     } catch (err: any) {
       toast({ title: "Ad failed", description: err.message || "Could not save advertisement.", variant: "destructive" });
@@ -367,6 +372,22 @@ export default function Admin() {
     } finally {
       setIsUploadingAdImage(false);
       if (adImageInputRef.current) adImageInputRef.current.value = "";
+    }
+  };
+
+  const handleUpdateVisibility = async (update: AdminUpdate, patch: Partial<Pick<AdminUpdate, "isActive" | "showSponsored">>) => {
+    try {
+      const res = await adminFetch(`/api/admin/updates/${update.id}`, adminKey, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to update visibility");
+      const saved = await res.json();
+      setAdminUpdates(prev => prev.map(item => item.id === saved.id ? saved : item));
+      toast({ title: "Display updated", description: "Homepage visibility has been saved." });
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message || "Could not update display.", variant: "destructive" });
     }
   };
 
@@ -1085,6 +1106,16 @@ export default function Admin() {
                     data-testid="input-admin-ad-cta-url"
                   />
                 </div>
+                <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
+                  <span>Show sponsored badge</span>
+                  <input
+                    type="checkbox"
+                    checked={adForm.showSponsored}
+                    onChange={event => setAdForm(prev => ({ ...prev, showSponsored: event.target.checked }))}
+                    className="h-4 w-4 accent-primary"
+                    data-testid="checkbox-admin-ad-sponsored"
+                  />
+                </label>
                 <Button type="submit" className="w-full" disabled={isPostingAd || !adForm.title.trim() || !adForm.body.trim()} data-testid="button-post-admin-ad">
                   {isPostingAd ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
                   Post Advertisement
@@ -1124,17 +1155,17 @@ export default function Admin() {
 
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Past updates{adminUpdates.length > 0 && ` - ${adminUpdates.length}`}
+                  Currently displaying - {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).length}
                 </p>
-                {adminUpdates.length === 0 ? (
+                {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <Hash className="w-10 h-10 text-muted-foreground mb-3 opacity-40" />
-                    <p className="text-foreground font-medium">No updates yet</p>
-                    <p className="text-muted-foreground text-sm mt-1">Saved admin updates will appear here.</p>
+                    <p className="text-foreground font-medium">Nothing active right now</p>
+                    <p className="text-muted-foreground text-sm mt-1">Active player ads and announcements will appear here.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {adminUpdates.map(update => (
+                    {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).map(update => (
                       <div key={update.id} className="bg-card border border-border rounded-xl p-4" data-testid={`card-admin-update-${update.id}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -1151,10 +1182,60 @@ export default function Admin() {
                         {update.imageUrl && (
                           <img src={update.imageUrl} alt="" className="mt-3 h-24 w-full rounded-lg object-cover" />
                         )}
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => handleUpdateVisibility(update, { isActive: false })}>
+                            Hide
+                          </Button>
+                          {update.postType === "advertisement" && (
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => handleUpdateVisibility(update, { showSponsored: !update.showSponsored })}>
+                              {update.showSponsored ? "Hide Sponsored" : "Show Sponsored"}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  All updates - {adminUpdates.length}
+                </p>
+                <div className="space-y-3">
+                  {adminUpdates.map(update => (
+                    <div key={`all-${update.id}`} className="bg-card border border-border rounded-xl p-4 opacity-95">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-foreground font-semibold text-sm">{update.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {new Date(update.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-[10px] font-semibold uppercase px-2 py-1 rounded-md ${update.isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                            {update.isActive ? "active" : "hidden"}
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase bg-violet-500/10 text-violet-400 px-2 py-1 rounded-md">
+                            {update.postType === "advertisement" ? "ad banner" : update.audience}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{update.body}</p>
+                      {update.imageUrl && <img src={update.imageUrl} alt="" className="mt-3 h-20 w-full rounded-lg object-cover" />}
+                      <div className="mt-3 flex gap-2">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => handleUpdateVisibility(update, { isActive: !update.isActive })}>
+                          {update.isActive ? "Hide" : "Show"}
+                        </Button>
+                        {update.postType === "advertisement" && (
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => handleUpdateVisibility(update, { showSponsored: !update.showSponsored })}>
+                            {update.showSponsored ? "Sponsored On" : "Sponsored Off"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

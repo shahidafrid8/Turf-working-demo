@@ -468,6 +468,8 @@ export const adminUpdates = pgTable("admin_updates", {
   imageUrl: text("image_url"),
   ctaLabel: text("cta_label"),
   ctaUrl: text("cta_url"),
+  isActive: boolean("is_active").notNull().default(true),
+  showSponsored: boolean("show_sponsored").notNull().default(true),
   createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles, Megaphone } from "lucide-react";
+import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { TurfTimeLogo } from "@/components/TurfTimeLogo";
 import { TurfCard } from "@/components/TurfCard";
@@ -330,41 +330,47 @@ export default function Home() {
         </section>
 
         {adBanners && adBanners.length > 0 && (
-          <section className="space-y-3" data-testid="section-ad-banners">
-            {adBanners.slice(0, 3).map(ad => (
-              <div
-                key={ad.id}
-                className="relative overflow-hidden rounded-2xl border border-primary/20 bg-card min-h-[132px]"
-                data-testid={`card-ad-banner-${ad.id}`}
-              >
-                {ad.imageUrl ? (
-                  <img src={ad.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary/25 via-emerald-500/10 to-background" />
-                )}
-                <div className="absolute inset-0 bg-black/45" />
-                <div className="relative p-4 text-white">
-                  <div className="mb-6 flex items-center gap-2">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90">
-                      <Megaphone className="h-4 w-4 text-primary-foreground" />
-                    </span>
-                    <span className="rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide backdrop-blur-sm">Sponsored</span>
-                  </div>
-                  <h2 className="text-xl font-bold leading-tight">{ad.title}</h2>
-                  <p className="mt-1 max-w-[78%] text-sm text-white/85 line-clamp-2">{ad.body}</p>
-                  {ad.ctaUrl && (
-                    <button
-                      type="button"
-                      onClick={() => window.open(ad.ctaUrl || "", "_blank", "noopener,noreferrer")}
-                      className="mt-3 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
-                      data-testid={`button-ad-cta-${ad.id}`}
-                    >
-                      {ad.ctaLabel || "View Offer"}
-                    </button>
+          <section data-testid="section-ad-banners" className="overflow-hidden">
+            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar">
+              {adBanners.map(ad => (
+                <button
+                  type="button"
+                  key={ad.id}
+                  onClick={() => ad.ctaUrl && window.open(ad.ctaUrl, "_blank", "noopener,noreferrer")}
+                  className="relative h-[104px] min-w-full snap-center overflow-hidden rounded-xl border border-border bg-card text-left"
+                  data-testid={`card-ad-banner-${ad.id}`}
+                >
+                  {ad.imageUrl ? (
+                    <img src={ad.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : (
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(34,197,94,.22),transparent_32%),linear-gradient(135deg,rgba(12,18,18,.96),rgba(5,7,7,.98))]" />
                   )}
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/35 to-black/10" />
+                  <div className="relative flex h-full flex-col justify-center px-4 pr-12 text-white">
+                    {ad.showSponsored && (
+                      <span className="mb-2 w-fit rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide backdrop-blur-sm">
+                        Sponsored
+                      </span>
+                    )}
+                    <h2 className="line-clamp-1 text-lg font-bold leading-tight">{ad.title}</h2>
+                    <p className="mt-1 line-clamp-1 text-sm text-white/80">{ad.body}</p>
+                    {ad.ctaLabel && <span className="mt-1 text-xs font-semibold text-primary">{ad.ctaLabel}</span>}
+                  </div>
+                  {adBanners.length > 1 && (
+                    <div className="absolute bottom-2 right-3 rounded-full bg-black/45 px-2 py-0.5 text-[10px] text-white/80">
+                      {adBanners.indexOf(ad) + 1}/{adBanners.length}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            {adBanners.length > 1 && (
+              <div className="mt-2 flex justify-center gap-1.5">
+                {adBanners.map(ad => (
+                  <span key={ad.id} className="h-1.5 w-1.5 rounded-full bg-muted-foreground/45" />
+                ))}
                 </div>
-              </div>
-            ))}
+            )}
           </section>
         )}
 

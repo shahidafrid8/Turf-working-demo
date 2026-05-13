@@ -133,6 +133,7 @@ export interface IStorage {
   // Admin Updates
   getAdminUpdates(): Promise<AdminUpdate[]>;
   createAdminUpdate(update: InsertAdminUpdate): Promise<AdminUpdate>;
+  updateAdminUpdateVisibility(id: string, data: { isActive?: boolean; showSponsored?: boolean }): Promise<AdminUpdate | undefined>;
 }
 
 const turfImages = [
@@ -223,6 +224,8 @@ export class MemStorage implements IStorage {
       imageUrl: null,
       ctaLabel: null,
       ctaUrl: null,
+      isActive: true,
+      showSponsored: true,
       createdBy: "system",
       createdAt: new Date(),
     };
@@ -1664,6 +1667,8 @@ export class MemStorage implements IStorage {
       imageUrl: null,
       ctaLabel: null,
       ctaUrl: null,
+      isActive: true,
+      showSponsored: true,
       createdBy: null,
       ...insertUpdate,
       id: randomUUID(),
@@ -1671,6 +1676,18 @@ export class MemStorage implements IStorage {
     };
     this.adminUpdates.set(update.id, update);
     return update;
+  }
+
+  async updateAdminUpdateVisibility(id: string, data: { isActive?: boolean; showSponsored?: boolean }): Promise<AdminUpdate | undefined> {
+    const update = this.adminUpdates.get(id);
+    if (!update) return undefined;
+    const next = {
+      ...update,
+      isActive: data.isActive ?? update.isActive,
+      showSponsored: data.showSponsored ?? update.showSponsored,
+    };
+    this.adminUpdates.set(id, next);
+    return next;
   }
 
   // ── Ban / Unban ─────────────────────────────────────────────────────────────
@@ -1822,6 +1839,7 @@ const mutatingMethods = new Set<keyof IStorage>([
   "createReview",
   "upsertAppFeedback",
   "createAdminUpdate",
+  "updateAdminUpdateVisibility",
 ]);
 
 const baseStorage = new MemStorage();

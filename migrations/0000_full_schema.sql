@@ -366,6 +366,8 @@ CREATE TABLE IF NOT EXISTS "admin_updates" (
   "image_url" text,
   "cta_label" text,
   "cta_url" text,
+  "is_active" boolean DEFAULT true NOT NULL,
+  "show_sponsored" boolean DEFAULT true NOT NULL,
   "created_by" varchar,
   "created_at" timestamp DEFAULT now()
 );

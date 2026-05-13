@@ -36,6 +36,13 @@
       "when": 1777834800000,
       "tag": "0004_normalized_schema_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778670000000,
+      "tag": "0005_admin_update_visibility",
+      "breakpoints": true
     }
   ]
 }

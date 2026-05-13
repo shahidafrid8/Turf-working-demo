@@ -9,6 +9,7 @@ export function registerPublicRoutes(app: Express) {
   app.get("/api/updates", async (_req, res) => {
     const updates = await storage.getAdminUpdates();
     res.json(updates.filter(update =>
+      update.isActive &&
       update.postType === "announcement" &&
       (update.audience === "players" || update.audience === "all")
     ));
@@ -17,6 +18,7 @@ export function registerPublicRoutes(app: Express) {
   app.get("/api/ads", async (_req, res) => {
     const updates = await storage.getAdminUpdates();
     res.json(updates.filter(update =>
+      update.isActive &&
       update.postType === "advertisement" &&
       (update.audience === "players" || update.audience === "all")
     ));

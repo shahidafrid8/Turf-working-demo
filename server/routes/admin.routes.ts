@@ -4,6 +4,7 @@ import {
   ADMIN_KEY,
   adminLocationSchema,
   adminUpdateSchema,
+  adminUpdateVisibilitySchema,
   banUserSchema,
   promoCodeAdminSchema,
   getAdminKey,
@@ -34,6 +35,15 @@ export function registerAdminRoutes(app: Express) {
       createdBy: "admin",
     });
     res.status(201).json(update);
+  });
+
+  app.patch("/api/admin/updates/:id", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const parsed = adminUpdateVisibilitySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid update" }) as any;
+    const update = await storage.updateAdminUpdateVisibility(req.params.id, parsed.data);
+    if (!update) return res.status(404).json({ error: "Update not found" }) as any;
+    res.json(update);
   });
 
   app.get("/api/admin/promos", async (req: Request, res: Response) => {
