@@ -181,7 +181,7 @@ export default function Admin() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
   const [pendingTurfs, setPendingTurfs] = useState<PendingTurf[]>([]);
-  const [pendingTurfListings, setPendingTurfListings] = useState<any[]>([]);
+  const pendingTurfListings: any[] = [];
   const [allOwners, setAllOwners] = useState<AllOwner[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -245,7 +245,7 @@ export default function Admin() {
     if (!quiet) setIsLoading(true);
     else setIsRefreshing(true);
     try {
-      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, pendingListingsRes, payoutsRes, updatesRes, promosRes] = await Promise.all([
+      const [statsRes, pendingAccRes, pendingTurfRes, allRes, locRes, playersRes, bookingsRes, payoutsRes, updatesRes, promosRes] = await Promise.all([
         adminFetch(`/api/admin/stats`, key),
         adminFetch(`/api/admin/owners`, key),
         adminFetch(`/api/admin/pending-turfs`, key),
@@ -253,21 +253,19 @@ export default function Admin() {
         fetch(`/api/locations`),
         adminFetch(`/api/admin/players`, key),
         adminFetch(`/api/admin/bookings`, key),
-        adminFetch(`/api/admin/pending-turf-listings`, key),
         adminFetch(`/api/admin/payouts`, key),
         adminFetch(`/api/admin/updates`, key),
         adminFetch(`/api/admin/promos`, key),
       ]);
       if (statsRes.status === 403) throw new Error("Invalid admin key");
       if (!statsRes.ok) throw new Error("Failed to load data");
-      const [s, pa, pt, a, l, pl, bk, ptl, pay, updates, promos] = await Promise.all([
+      const [s, pa, pt, a, l, pl, bk, pay, updates, promos] = await Promise.all([
         statsRes.json(), pendingAccRes.json(), pendingTurfRes.json(), allRes.json(),
-        locRes.json(), playersRes.json(), bookingsRes.json(), pendingListingsRes.json(), payoutsRes.json(), updatesRes.json(), promosRes.json()
+        locRes.json(), playersRes.json(), bookingsRes.json(), payoutsRes.json(), updatesRes.json(), promosRes.json()
       ]);
       setStats(s);
       setPendingAccounts(pa);
       setPendingTurfs(pt);
-      setPendingTurfListings(ptl);
       setAllOwners(a);
       setLocations(l);
       setPlayers(pl);
@@ -492,21 +490,8 @@ export default function Admin() {
     }
   };
 
-  const handleTurfListingAction = async (turfId: string, action: "approve" | "reject") => {
-    setActionPending(turfId + action);
-    try {
-      const res = await adminFetch(`/api/admin/turfs/${turfId}/${action}`, adminKey, { method: "POST" });
-      if (!res.ok) throw new Error("Action failed");
-      await fetchAll(adminKey, true);
-      toast({
-        title: action === "approve" ? "Turf approved" : "Turf rejected",
-        description: action === "approve" ? "The additional turf is now live." : "The turf listing has been rejected.",
-      });
-    } catch {
-      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
-    } finally {
-      setActionPending(null);
-    }
+  const handleTurfListingAction = async (_turfId: string, _action: "approve" | "reject") => {
+    return;
   };
 
   const handleGlobalSearch = async (e: React.FormEvent) => {
@@ -550,7 +535,7 @@ export default function Admin() {
     }
   };
 
-  const totalPending = (stats?.pendingAccounts ?? 0) + (stats?.pendingTurfs ?? 0) + pendingTurfListings.length;
+  const totalPending = (stats?.pendingAccounts ?? 0) + (stats?.pendingTurfs ?? 0);
 
   // ── Player Detail View ─────────────────────────────────────────────────────
   if (selectedPlayer) {
