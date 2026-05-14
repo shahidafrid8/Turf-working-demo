@@ -1,4 +1,4 @@
-import logoImg from "@assets/image_1774343851801.png";
+import logoImg from "@assets/quickturf-logo-transparent.png";
 
 interface TurfTimeLogoProps {
   size?: "sm" | "md" | "lg";

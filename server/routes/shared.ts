@@ -235,6 +235,8 @@ export const adminUpdateSchema = z.object({
   ctaUrl: z.string().url("Enter a valid link URL").max(800).optional().nullable(),
   isActive: z.boolean().optional().default(true),
   showSponsored: z.boolean().optional().default(true),
+  targetLocations: z.array(z.string().min(2).max(80)).max(50).optional().nullable(),
+  expiresAt: z.coerce.date().optional().nullable(),
 }).strict();
 
 export const adminUpdateVisibilitySchema = z.object({

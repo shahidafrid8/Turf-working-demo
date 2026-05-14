@@ -227,6 +227,8 @@ export class MemStorage implements IStorage {
       ctaUrl: null,
       isActive: true,
       showSponsored: true,
+      targetLocations: null,
+      expiresAt: null,
       createdBy: "system",
       createdAt: new Date(),
     };
@@ -816,11 +818,12 @@ export class MemStorage implements IStorage {
   }
 
   async getTurfs(): Promise<Turf[]> {
-    return Array.from(this.turfs.values());
+    return Array.from(this.turfs.values()).map((turf) => this.withGenuineRating(turf));
   }
 
   async getTurf(id: string): Promise<Turf | undefined> {
-    return this.turfs.get(id);
+    const turf = this.turfs.get(id);
+    return turf ? this.withGenuineRating(turf) : undefined;
   }
 
   async getTurfsByOwnerId(ownerId: string): Promise<Turf[]> {
@@ -836,7 +839,7 @@ export class MemStorage implements IStorage {
         location: app.turfLocation,
         address: app.turfAddress,
         imageUrl: app.turfImageUrls?.[0] || turfImages[0],
-        rating: 5,
+        rating: 0,
         amenities: ["Parking"],
         sportTypes: ["Cricket"],
         pricePerHour: 1000,
@@ -1670,6 +1673,8 @@ export class MemStorage implements IStorage {
       ctaUrl: null,
       isActive: true,
       showSponsored: true,
+      targetLocations: null,
+      expiresAt: null,
       createdBy: null,
       ...insertUpdate,
       id: randomUUID(),
@@ -1774,6 +1779,18 @@ export class MemStorage implements IStorage {
     return Array.from(this.turfReviews.values())
       .filter(r => r.turfId === turfId)
       .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+  }
+
+  private getRatingSummary(turfId: string): { rating: number; reviewCount: number } {
+    const reviews = Array.from(this.turfReviews.values()).filter((review) => review.turfId === turfId);
+    if (!reviews.length) return { rating: 0, reviewCount: 0 };
+    const average = reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+    return { rating: Number(average.toFixed(1)), reviewCount: reviews.length };
+  }
+
+  private withGenuineRating(turf: Turf): Turf & { reviewCount: number } {
+    const summary = this.getRatingSummary(turf.id);
+    return { ...turf, rating: summary.rating, reviewCount: summary.reviewCount };
   }
 
   async hasReview(bookingId: string): Promise<boolean> {

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
-import { ArrowLeft, Share2, Star, MapPin, Car, Wifi, Droplets, Clock, Users, Coffee, Droplet } from "lucide-react";
+import { ArrowLeft, Share2, Star, MapPin, Car, Wifi, Droplets, Clock, Users, Coffee, Droplet, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,8 @@ import { startOfToday, format } from "date-fns";
 import type { Turf, TimeSlot } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
+import { useFavoriteTurfs } from "@/lib/favorites";
+import { cn } from "@/lib/utils";
 
 const amenityIcons: Record<string, typeof Wifi> = {
   "Parking": Car,
@@ -27,6 +29,7 @@ export default function Booking() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { isFavorite, toggleFavorite } = useFavoriteTurfs();
   const [selectedDate, setSelectedDate] = useState(startOfToday());
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [duration, setDuration] = useState("60");
@@ -144,6 +147,16 @@ export default function Booking() {
     }
   };
 
+  const handleFavorite = () => {
+    if (!turf) return;
+    const next = !isFavorite(turf.id);
+    toggleFavorite(turf.id);
+    toast({
+      title: next ? "Added to favorites" : "Removed from favorites",
+      description: next ? `${turf.name} is saved in your favorites.` : `${turf.name} was removed from favorites.`,
+    });
+  };
+
   const handleSelectSlot = (slot: TimeSlot) => {
     if (slots) {
       const durationHours = parseInt(duration) / 60;
@@ -196,6 +209,10 @@ export default function Booking() {
     );
   }
 
+  const reviewCount = Number((turf as Turf & { reviewCount?: number }).reviewCount || 0);
+  const ratingLabel = reviewCount > 0 ? Number(turf.rating).toFixed(Number.isInteger(turf.rating) ? 0 : 1) : "New";
+  const favorited = isFavorite(turf.id);
+
   return (
     <div className="min-h-screen bg-background pb-28">
       {/* Hero Image */}
@@ -220,15 +237,27 @@ export default function Booking() {
             <ArrowLeft className="w-5 h-5 text-white" />
           </Button>
           
-          <Button 
-            size="icon" 
-            variant="secondary"
-            className="bg-black/40 backdrop-blur-sm border-none"
-            data-testid="button-share"
-            onClick={handleShare}
-          >
-            <Share2 className="w-5 h-5 text-white" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="icon"
+              variant="secondary"
+              className="bg-black/40 backdrop-blur-sm border-none"
+              data-testid="button-favorite"
+              onClick={handleFavorite}
+              aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+            >
+              <Heart className={cn("w-5 h-5 text-white", favorited && "fill-red-500 text-red-500")} />
+            </Button>
+            <Button
+              size="icon"
+              variant="secondary"
+              className="bg-black/40 backdrop-blur-sm border-none"
+              data-testid="button-share"
+              onClick={handleShare}
+            >
+              <Share2 className="w-5 h-5 text-white" />
+            </Button>
+          </div>
         </header>
       </div>
 
@@ -246,7 +275,8 @@ export default function Booking() {
             
             <div className="flex items-center gap-1 bg-card px-3 py-1.5 rounded-full">
               <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span className="font-semibold">{turf.rating}</span>
+              <span className="font-semibold">{ratingLabel}</span>
+              {reviewCount > 0 && <span className="text-xs text-muted-foreground">({reviewCount})</span>}
             </div>
           </div>
           

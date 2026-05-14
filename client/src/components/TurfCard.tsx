@@ -16,6 +16,8 @@ export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
   const [, setLocation] = useLocation();
   const { isFavorite, toggleFavorite } = useFavoriteTurfs();
   const favorited = isFavorite(turf.id);
+  const reviewCount = Number((turf as Turf & { reviewCount?: number }).reviewCount || 0);
+  const ratingLabel = reviewCount > 0 ? Number(turf.rating).toFixed(Number.isInteger(turf.rating) ? 0 : 1) : "New";
 
   const handleFavoriteClick = (event: React.MouseEvent) => {
     event.preventDefault();
@@ -64,7 +66,7 @@ export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
 
         <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-full">
           <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-          <span className="text-white text-xs font-medium">{turf.rating}</span>
+          <span className="text-white text-xs font-medium">{ratingLabel}</span>
         </div>
       </Card>
     );
@@ -103,7 +105,7 @@ export function TurfCard({ turf, variant = "list" }: TurfCardProps) {
             <h3 className="font-semibold text-foreground truncate">{turf.name}</h3>
             <div className="flex items-center gap-1 flex-shrink-0">
               <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
-              <span className="text-sm text-muted-foreground">{turf.rating}</span>
+              <span className="text-sm text-muted-foreground">{ratingLabel}</span>
             </div>
           </div>
           

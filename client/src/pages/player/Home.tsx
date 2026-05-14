@@ -113,11 +113,11 @@ export default function Home() {
   });
 
   const { data: adBanners } = useQuery<AdminUpdate[]>({
-    queryKey: ["/api/ads"],
+    queryKey: [`/api/ads?location=${encodeURIComponent(detectedLocation)}`],
   });
 
   const { data: announcements = [] } = useQuery<AdminUpdate[]>({
-    queryKey: ["/api/updates"],
+    queryKey: [`/api/updates?location=${encodeURIComponent(detectedLocation)}`],
   });
 
   useEffect(() => {
@@ -168,6 +168,11 @@ export default function Home() {
     }, 6000);
     return () => window.clearInterval(timer);
   }, [adBanners]);
+
+  useEffect(() => {
+    setActiveAdIndex(0);
+    adRailRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  }, [adBanners?.length]);
 
   const notifications = useMemo(() => {
     const list: any[] = [];

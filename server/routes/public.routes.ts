@@ -1,24 +1,42 @@
 import type { Express } from "express";
 import { storage } from "../storage";
+import type { AdminUpdate } from "@shared/schema";
+
+function locationKey(value: string) {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return cleaned.endsWith("a") ? cleaned.slice(0, -1) : cleaned;
+}
+
+function isUpdateDisplayable(update: AdminUpdate, location?: string) {
+  if (!update.isActive) return false;
+  if (update.expiresAt && new Date(update.expiresAt).getTime() <= Date.now()) return false;
+  const targets = update.targetLocations || [];
+  if (!targets.length) return true;
+  if (!location || location === "All locations") return false;
+  const requested = locationKey(location);
+  return targets.some(target => locationKey(target) === requested);
+}
 
 export function registerPublicRoutes(app: Express) {
   app.get("/api/locations", async (_req, res) => {
     res.json(await storage.getLocations());
   });
 
-  app.get("/api/updates", async (_req, res) => {
+  app.get("/api/updates", async (req, res) => {
     const updates = await storage.getAdminUpdates();
+    const location = typeof req.query.location === "string" ? req.query.location : undefined;
     res.json(updates.filter(update =>
-      update.isActive &&
+      isUpdateDisplayable(update, location) &&
       update.postType === "announcement" &&
       (update.audience === "players" || update.audience === "all")
     ));
   });
 
-  app.get("/api/ads", async (_req, res) => {
+  app.get("/api/ads", async (req, res) => {
     const updates = await storage.getAdminUpdates();
+    const location = typeof req.query.location === "string" ? req.query.location : undefined;
     res.json(updates.filter(update =>
-      update.isActive &&
+      isUpdateDisplayable(update, location) &&
       update.postType === "advertisement" &&
       (update.audience === "players" || update.audience === "all")
     ));

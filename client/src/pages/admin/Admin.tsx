@@ -103,6 +103,8 @@ interface AdminUpdate {
   ctaUrl: string | null;
   isActive: boolean;
   showSponsored: boolean;
+  targetLocations: string[] | null;
+  expiresAt: string | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -169,6 +171,14 @@ function formatDob(dob: string | null) {
   } catch { return dob; }
 }
 
+function isUpdateLive(update: AdminUpdate) {
+  return update.isActive && (!update.expiresAt || new Date(update.expiresAt).getTime() > Date.now());
+}
+
+function locationScopeLabel(update: Pick<AdminUpdate, "targetLocations">) {
+  return update.targetLocations?.length ? update.targetLocations.join(", ") : "All locations";
+}
+
 export default function Admin() {
   useSEO({ title: "Admin Portal | Quick Turf", description: "Admin Dashboard" });
   const [, navigate] = useLocation();
@@ -205,6 +215,8 @@ export default function Admin() {
   const [updateTitle, setUpdateTitle] = useState("");
   const [updateBody, setUpdateBody] = useState("");
   const [updateAudience, setUpdateAudience] = useState<AdminUpdate["audience"]>("players");
+  const [updateTargetLocations, setUpdateTargetLocations] = useState<string[]>([]);
+  const [updateExpiresAt, setUpdateExpiresAt] = useState("");
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
   const [adForm, setAdForm] = useState({
     title: "",
@@ -213,6 +225,8 @@ export default function Admin() {
     ctaLabel: "",
     ctaUrl: "",
     showSponsored: true,
+    targetLocations: [] as string[],
+    expiresAt: "",
   });
   const [isPostingAd, setIsPostingAd] = useState(false);
   const [isUploadingAdImage, setIsUploadingAdImage] = useState(false);
@@ -243,6 +257,10 @@ export default function Admin() {
         "x-admin-key": key,
       },
     });
+
+  const toggleFormLocation = (value: string, selected: string[], setSelected: (next: string[]) => void) => {
+    setSelected(selected.includes(value) ? selected.filter(item => item !== value) : [...selected, value]);
+  };
 
   const fetchAll = async (key: string, quiet = false) => {
     if (!quiet) setIsLoading(true);
@@ -298,6 +316,8 @@ export default function Admin() {
           body: updateBody.trim(),
           audience: updateAudience,
           postType: "announcement",
+          targetLocations: updateTargetLocations.length ? updateTargetLocations : null,
+          expiresAt: updateExpiresAt ? new Date(updateExpiresAt).toISOString() : null,
         }),
       });
       if (!res.ok) throw new Error("Failed to add update");
@@ -306,6 +326,8 @@ export default function Admin() {
       setUpdateTitle("");
       setUpdateBody("");
       setUpdateAudience("players");
+      setUpdateTargetLocations([]);
+      setUpdateExpiresAt("");
       toast({ title: "Update saved", description: "It now appears in past updates." });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Could not save update.", variant: "destructive" });
@@ -331,13 +353,15 @@ export default function Admin() {
           ctaLabel: adForm.ctaLabel.trim() || null,
           ctaUrl: adForm.ctaUrl.trim() || null,
           showSponsored: adForm.showSponsored,
+          targetLocations: adForm.targetLocations.length ? adForm.targetLocations : null,
+          expiresAt: adForm.expiresAt ? new Date(adForm.expiresAt).toISOString() : null,
           isActive: true,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to post advertisement");
       const ad = await res.json();
       setAdminUpdates(prev => [ad, ...prev]);
-      setAdForm({ title: "", body: "", imageUrl: "", ctaLabel: "", ctaUrl: "", showSponsored: true });
+      setAdForm({ title: "", body: "", imageUrl: "", ctaLabel: "", ctaUrl: "", showSponsored: true, targetLocations: [], expiresAt: "" });
       toast({ title: "Advertisement posted", description: "It will appear as a banner after search." });
     } catch (err: any) {
       toast({ title: "Ad failed", description: err.message || "Could not save advertisement.", variant: "destructive" });
@@ -1128,6 +1152,42 @@ export default function Admin() {
                     data-testid="checkbox-admin-ad-sponsored"
                   />
                 </label>
+                <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-foreground">Display locations</span>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={adForm.targetLocations.length === 0}
+                        onChange={() => setAdForm(prev => ({ ...prev, targetLocations: [] }))}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      All
+                    </label>
+                  </div>
+                  {locations.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {locations.map(location => (
+                        <label key={`ad-location-${location}`} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={adForm.targetLocations.includes(location)}
+                            onChange={() => toggleFormLocation(location, adForm.targetLocations, next => setAdForm(prev => ({ ...prev, targetLocations: next })))}
+                            className="h-4 w-4 accent-primary"
+                          />
+                          <span className="truncate">{location}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Input
+                  type="datetime-local"
+                  value={adForm.expiresAt}
+                  onChange={event => setAdForm(prev => ({ ...prev, expiresAt: event.target.value }))}
+                  className="bg-background border-border"
+                  data-testid="input-admin-ad-expires-at"
+                />
                 <Button type="submit" className="w-full" disabled={isPostingAd || !adForm.title.trim() || !adForm.body.trim()} data-testid="button-post-admin-ad">
                   {isPostingAd ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
                   Post Advertisement
@@ -1151,6 +1211,42 @@ export default function Admin() {
                   <option value="owners">Owners only</option>
                   <option value="internal">Internal admin note</option>
                 </select>
+                <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-foreground">Display locations</span>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={updateTargetLocations.length === 0}
+                        onChange={() => setUpdateTargetLocations([])}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      All
+                    </label>
+                  </div>
+                  {locations.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {locations.map(location => (
+                        <label key={`update-location-${location}`} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={updateTargetLocations.includes(location)}
+                            onChange={() => toggleFormLocation(location, updateTargetLocations, setUpdateTargetLocations)}
+                            className="h-4 w-4 accent-primary"
+                          />
+                          <span className="truncate">{location}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Input
+                  type="datetime-local"
+                  value={updateExpiresAt}
+                  onChange={event => setUpdateExpiresAt(event.target.value)}
+                  className="bg-background border-border"
+                  data-testid="input-admin-update-expires-at"
+                />
                 <textarea
                   value={updateBody}
                   onChange={event => setUpdateBody(event.target.value)}
@@ -1167,9 +1263,9 @@ export default function Admin() {
 
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Currently displaying - {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).length}
+                  Currently displaying - {adminUpdates.filter(update => isUpdateLive(update) && (update.audience === "players" || update.audience === "all")).length}
                 </p>
-                {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).length === 0 ? (
+                {adminUpdates.filter(update => isUpdateLive(update) && (update.audience === "players" || update.audience === "all")).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <Hash className="w-10 h-10 text-muted-foreground mb-3 opacity-40" />
                     <p className="text-foreground font-medium">Nothing active right now</p>
@@ -1177,7 +1273,7 @@ export default function Admin() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {adminUpdates.filter(update => update.isActive && (update.audience === "players" || update.audience === "all")).map(update => (
+                    {adminUpdates.filter(update => isUpdateLive(update) && (update.audience === "players" || update.audience === "all")).map(update => (
                       <div key={update.id} className="bg-card border border-border rounded-xl p-4" data-testid={`card-admin-update-${update.id}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -1191,6 +1287,12 @@ export default function Admin() {
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{update.body}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <span className="rounded-md bg-muted px-2 py-1">{locationScopeLabel(update)}</span>
+                          <span className="rounded-md bg-muted px-2 py-1">
+                            {update.expiresAt ? `until ${new Date(update.expiresAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "manual delete"}
+                          </span>
+                        </div>
                         {update.imageUrl && (
                           <img src={update.imageUrl} alt="" className="mt-3 h-24 w-full rounded-lg object-cover" />
                         )}
@@ -1229,7 +1331,7 @@ export default function Admin() {
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <span className={`text-[10px] font-semibold uppercase px-2 py-1 rounded-md ${update.isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                            {update.isActive ? "active" : "hidden"}
+                            {isUpdateLive(update) ? "active" : update.isActive ? "expired" : "hidden"}
                           </span>
                           <span className="text-[10px] font-semibold uppercase bg-violet-500/10 text-violet-400 px-2 py-1 rounded-md">
                             {update.postType === "advertisement" ? "ad banner" : update.audience}
@@ -1237,6 +1339,12 @@ export default function Admin() {
                         </div>
                       </div>
                       <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{update.body}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <span className="rounded-md bg-muted px-2 py-1">{locationScopeLabel(update)}</span>
+                        <span className="rounded-md bg-muted px-2 py-1">
+                          {update.expiresAt ? `until ${new Date(update.expiresAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "manual delete"}
+                        </span>
+                      </div>
                       {update.imageUrl && <img src={update.imageUrl} alt="" className="mt-3 h-20 w-full rounded-lg object-cover" />}
                       <div className="mt-3 flex gap-2">
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => handleUpdateVisibility(update, { isActive: !update.isActive })}>
