@@ -134,6 +134,7 @@ export interface IStorage {
   getAdminUpdates(): Promise<AdminUpdate[]>;
   createAdminUpdate(update: InsertAdminUpdate): Promise<AdminUpdate>;
   updateAdminUpdateVisibility(id: string, data: { isActive?: boolean; showSponsored?: boolean }): Promise<AdminUpdate | undefined>;
+  deleteAdminUpdate(id: string): Promise<boolean>;
 }
 
 const turfImages = [
@@ -1690,6 +1691,10 @@ export class MemStorage implements IStorage {
     return next;
   }
 
+  async deleteAdminUpdate(id: string): Promise<boolean> {
+    return this.adminUpdates.delete(id);
+  }
+
   // ── Ban / Unban ─────────────────────────────────────────────────────────────
   async banUser(id: string, reason: string): Promise<User | undefined> {
     const user = this.users.get(id);
@@ -1840,6 +1845,7 @@ const mutatingMethods = new Set<keyof IStorage>([
   "upsertAppFeedback",
   "createAdminUpdate",
   "updateAdminUpdateVisibility",
+  "deleteAdminUpdate",
 ]);
 
 const baseStorage = new MemStorage();

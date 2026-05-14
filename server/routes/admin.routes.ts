@@ -46,6 +46,13 @@ export function registerAdminRoutes(app: Express) {
     res.json(update);
   });
 
+  app.delete("/api/admin/updates/:id", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const deleted = await storage.deleteAdminUpdate(req.params.id);
+    if (!deleted) return res.status(404).json({ error: "Update not found" }) as any;
+    res.json({ success: true });
+  });
+
   app.get("/api/admin/promos", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     res.json(await storage.getPromoCodes());

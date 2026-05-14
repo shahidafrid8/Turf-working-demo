@@ -391,6 +391,18 @@ export default function Admin() {
     }
   };
 
+  const handleDeleteUpdate = async (update: AdminUpdate) => {
+    if (!window.confirm(`Delete "${update.title}"?`)) return;
+    try {
+      const res = await adminFetch(`/api/admin/updates/${update.id}`, adminKey, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to delete update");
+      setAdminUpdates(prev => prev.filter(item => item.id !== update.id));
+      toast({ title: "Deleted", description: "The item has been removed." });
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message || "Could not delete item.", variant: "destructive" });
+    }
+  };
+
   const handleCreatePromo = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsCreatingPromo(true);
@@ -1191,6 +1203,9 @@ export default function Admin() {
                               {update.showSponsored ? "Hide Sponsored" : "Show Sponsored"}
                             </Button>
                           )}
+                          <Button size="sm" variant="outline" className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-400" onClick={() => handleDeleteUpdate(update)}>
+                            Delete
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1232,6 +1247,9 @@ export default function Admin() {
                             {update.showSponsored ? "Sponsored On" : "Sponsored Off"}
                           </Button>
                         )}
+                        <Button size="sm" variant="outline" className="flex-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-400" onClick={() => handleDeleteUpdate(update)}>
+                          Delete
+                        </Button>
                       </div>
                     </div>
                   ))}

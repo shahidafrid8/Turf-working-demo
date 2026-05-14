@@ -79,6 +79,7 @@ export default function Home() {
   const [filterMaxPrice, setFilterMaxPrice] = useState<number>(5000);
   const [filterMinRating, setFilterMinRating] = useState<number>(0);
   const [filterAmenities, setFilterAmenities] = useState<string[]>([]);
+  const [detectedLocation, setDetectedLocation] = useState("Detecting location");
 
   const { data: turfs, isLoading } = useQuery<Turf[]>({
     queryKey: ["/api/turfs"],
@@ -92,6 +93,37 @@ export default function Home() {
   const { data: adBanners } = useQuery<AdminUpdate[]>({
     queryKey: ["/api/ads"],
   });
+
+  const { data: announcements = [] } = useQuery<AdminUpdate[]>({
+    queryKey: ["/api/updates"],
+  });
+
+  useEffect(() => {
+    const cached = localStorage.getItem("quickturf:detected-location");
+    if (cached) setDetectedLocation(cached);
+    if (!navigator.geolocation) {
+      setDetectedLocation(cached || "Location unavailable");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          const address = data.address || {};
+          const label = address.city || address.town || address.village || address.suburb || address.county || "Near you";
+          setDetectedLocation(label);
+          localStorage.setItem("quickturf:detected-location", label);
+        } catch {
+          setDetectedLocation("Near you");
+        }
+      },
+      () => setDetectedLocation(cached || "Enable location"),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 }
+    );
+  }, []);
 
   const notifications = useMemo(() => {
     const list: any[] = [];
@@ -266,6 +298,12 @@ export default function Home() {
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border">
         <div className="flex items-center justify-between px-4 py-3">
           <TurfTimeLogo size="sm" />
+          <div className="mx-3 min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="truncate" data-testid="text-detected-location">{detectedLocation}</span>
+            </div>
+          </div>
           
           <div className="flex items-center gap-3">
             <Button 
@@ -302,6 +340,22 @@ export default function Home() {
           </p>
         </section>
 
+        {announcements.length > 0 && (
+          <section className="flex snap-x snap-mandatory gap-2 overflow-x-auto scrollbar-hide" data-testid="section-announcements">
+            {announcements.map(update => (
+              <div key={update.id} className="min-w-full snap-center rounded-lg bg-card px-3 py-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,.06)]">
+                <div className="flex items-start gap-2">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{update.title}</p>
+                    <p className="line-clamp-1 text-xs text-muted-foreground">{update.body}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
         {/* Search Bar */}
         <section className="relative" data-testid="section-search">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
@@ -331,13 +385,13 @@ export default function Home() {
 
         {adBanners && adBanners.length > 0 && (
           <section data-testid="section-ad-banners" className="overflow-hidden">
-            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar">
+            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide">
               {adBanners.map(ad => (
                 <button
                   type="button"
                   key={ad.id}
                   onClick={() => ad.ctaUrl && window.open(ad.ctaUrl, "_blank", "noopener,noreferrer")}
-                  className="relative h-[104px] min-w-full snap-center overflow-hidden rounded-xl border border-border bg-card text-left"
+                  className="relative h-[112px] min-w-full snap-center overflow-hidden rounded-xl bg-card text-left shadow-[0_10px_24px_rgba(0,0,0,.22),inset_0_0_0_1px_rgba(255,255,255,.06)]"
                   data-testid={`card-ad-banner-${ad.id}`}
                 >
                   {ad.imageUrl ? (
@@ -357,7 +411,7 @@ export default function Home() {
                     {ad.ctaLabel && <span className="mt-1 text-xs font-semibold text-primary">{ad.ctaLabel}</span>}
                   </div>
                   {adBanners.length > 1 && (
-                    <div className="absolute bottom-2 right-3 rounded-full bg-black/45 px-2 py-0.5 text-[10px] text-white/80">
+                    <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-0.5 text-[10px] text-white/80">
                       {adBanners.indexOf(ad) + 1}/{adBanners.length}
                     </div>
                   )}
@@ -365,11 +419,11 @@ export default function Home() {
               ))}
             </div>
             {adBanners.length > 1 && (
-              <div className="mt-2 flex justify-center gap-1.5">
+              <div className="pointer-events-none -mt-4 flex justify-center gap-1.5 pb-2">
                 {adBanners.map(ad => (
-                  <span key={ad.id} className="h-1.5 w-1.5 rounded-full bg-muted-foreground/45" />
+                  <span key={ad.id} className="h-1.5 w-1.5 rounded-full bg-white/70 shadow-sm" />
                 ))}
-                </div>
+              </div>
             )}
           </section>
         )}
