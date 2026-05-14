@@ -1,4 +1,4 @@
-import logoImg from "@assets/quickturf-logo-transparent.png";
+import logoImg from "@assets/image_1774343851801.png";
 
 interface TurfTimeLogoProps {
   size?: "sm" | "md" | "lg";
@@ -13,14 +13,15 @@ export function TurfTimeLogo({ size = "md", showText = true }: TurfTimeLogoProps
   };
 
   const h = heights[size];
+  const w = Math.round(h * 1.56);
 
   return (
-    <div className="flex items-center" data-testid="logo-turftime">
+    <div className="flex shrink-0 items-center" data-testid="logo-turftime">
       <img
         src={logoImg}
         alt="QuickTurf"
-        style={{ height: h, width: "auto" }}
-        className="object-contain"
+        style={{ height: h, width: w }}
+        className="object-contain mix-blend-screen"
       />
     </div>
   );
