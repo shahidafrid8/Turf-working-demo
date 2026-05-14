@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Bell, SlidersHorizontal, MapPin, IndianRupee, Star, X, CalendarCheck, Clock, Info, Sparkles } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -19,6 +19,21 @@ import { formatDistanceToNow, format } from "date-fns";
 import { useSEO } from "@/lib/seo";
 
 const sportFilters = ["All", "Cricket", "Football", "Basketball", "Tennis", "Badminton"];
+
+function locationKey(value: string) {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return cleaned.endsWith("a") ? cleaned.slice(0, -1) : cleaned;
+}
+
+function matchAdminLocation(value: string, adminLocations: string[]) {
+  const key = locationKey(value);
+  return adminLocations.find(location => locationKey(location) === key) || value;
+}
+
+function isAdminLocation(value: string, adminLocations: string[]) {
+  const key = locationKey(value);
+  return adminLocations.some(location => locationKey(location) === key);
+}
 
 function AdSenseBanner() {
   const env = (import.meta as any).env || {};
@@ -71,7 +86,9 @@ export default function Home() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const adRailRef = useRef<HTMLDivElement>(null);
 
   // Filter state
   const [filterCity, setFilterCity] = useState<string | null>(null);
@@ -80,9 +97,14 @@ export default function Home() {
   const [filterMinRating, setFilterMinRating] = useState<number>(0);
   const [filterAmenities, setFilterAmenities] = useState<string[]>([]);
   const [detectedLocation, setDetectedLocation] = useState("Detecting location");
+  const [activeAdIndex, setActiveAdIndex] = useState(0);
 
   const { data: turfs, isLoading } = useQuery<Turf[]>({
     queryKey: ["/api/turfs"],
+  });
+
+  const { data: adminLocations = [] } = useQuery<string[]>({
+    queryKey: ["/api/locations"],
   });
 
   const { data: myBookings } = useQuery<Booking[]>({
@@ -100,7 +122,14 @@ export default function Home() {
 
   useEffect(() => {
     const cached = localStorage.getItem("quickturf:detected-location");
-    if (cached) setDetectedLocation(cached);
+    if (cached && cached !== "All locations") {
+      const matched = matchAdminLocation(cached, adminLocations);
+      setDetectedLocation(matched);
+      if (isAdminLocation(matched, adminLocations)) setFilterCity(matched);
+    } else if (cached === "All locations") {
+      setDetectedLocation(cached);
+      setFilterCity(null);
+    }
     if (!navigator.geolocation) {
       setDetectedLocation(cached || "Location unavailable");
       return;
@@ -113,8 +142,10 @@ export default function Home() {
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
           const data = await res.json();
           const address = data.address || {};
-          const label = address.city || address.town || address.village || address.suburb || address.county || "Near you";
+          const rawLabel = address.city || address.town || address.village || address.suburb || address.county || "Near you";
+          const label = matchAdminLocation(rawLabel, adminLocations);
           setDetectedLocation(label);
+          if (isAdminLocation(label, adminLocations)) setFilterCity(label);
           localStorage.setItem("quickturf:detected-location", label);
         } catch {
           setDetectedLocation("Near you");
@@ -123,7 +154,20 @@ export default function Home() {
       () => setDetectedLocation(cached || "Enable location"),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 }
     );
-  }, []);
+  }, [adminLocations]);
+
+  useEffect(() => {
+    if (!adBanners || adBanners.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setActiveAdIndex(current => {
+        const next = (current + 1) % adBanners.length;
+        const rail = adRailRef.current;
+        rail?.children[next]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        return next;
+      });
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [adBanners]);
 
   const notifications = useMemo(() => {
     const list: any[] = [];
@@ -189,7 +233,7 @@ export default function Home() {
   const { cities, areasByCity } = useMemo(() => {
     if (!turfs) return { cities: [], areasByCity: {} as Record<string, string[]> };
     
-    const citySet = new Set<string>();
+    const cityMap = new Map<string, string>();
     const areaMap: Record<string, Set<string>> = {};
     
     turfs.forEach(t => {
@@ -200,7 +244,8 @@ export default function Home() {
         city = parts[parts.length - 1].trim();
         area = parts.slice(0, -1).join(",").trim();
       }
-      citySet.add(city);
+      city = matchAdminLocation(city, adminLocations);
+      cityMap.set(locationKey(city), city);
       if (!areaMap[city]) areaMap[city] = new Set();
       if (area) areaMap[city].add(area);
     });
@@ -211,10 +256,10 @@ export default function Home() {
     });
     
     return {
-      cities: Array.from(citySet).sort(),
+      cities: Array.from(cityMap.values()).sort(),
       areasByCity: sortedAreasByCity
     };
-  }, [turfs]);
+  }, [turfs, adminLocations]);
 
   const amenities = useMemo(() => {
     if (!turfs) return [];
@@ -243,6 +288,7 @@ export default function Home() {
       tCity = parts[parts.length - 1].trim();
       tArea = parts.slice(0, -1).join(",").trim();
     }
+    tCity = matchAdminLocation(tCity, adminLocations);
     
     if (filterCity && tCity !== filterCity) return false;
     if (filterArea && tArea !== filterArea) return false;
@@ -261,6 +307,7 @@ export default function Home() {
       tCity = parts[parts.length - 1].trim();
       tArea = parts.slice(0, -1).join(",").trim();
     }
+    tCity = matchAdminLocation(tCity, adminLocations);
     
     if (filterCity && tCity !== filterCity) return false;
     if (filterArea && tArea !== filterArea) return false;
@@ -287,6 +334,15 @@ export default function Home() {
     setFilterAmenities([]);
   };
 
+  const chooseLocation = (location: string | null) => {
+    const next = location || "All locations";
+    setDetectedLocation(next);
+    localStorage.setItem("quickturf:detected-location", next);
+    setFilterCity(location);
+    setFilterArea(null);
+    setLocationOpen(false);
+  };
+
   // User initials for avatar fallback
   const initials = user
     ? (user.fullName || user.username).trim().charAt(0).toUpperCase()
@@ -298,12 +354,17 @@ export default function Home() {
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border">
         <div className="flex items-center justify-between px-4 py-3">
           <TurfTimeLogo size="sm" />
-          <div className="mx-3 min-w-0 flex-1">
+          <button
+            type="button"
+            className="mx-3 min-w-0 flex-1 text-left"
+            onClick={() => setLocationOpen(true)}
+            data-testid="button-location-picker"
+          >
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="truncate" data-testid="text-detected-location">{detectedLocation}</span>
             </div>
-          </div>
+          </button>
           
           <div className="flex items-center gap-3">
             <Button 
@@ -385,8 +446,15 @@ export default function Home() {
 
         {adBanners && adBanners.length > 0 && (
           <section data-testid="section-ad-banners" className="overflow-hidden">
-            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide">
-              {adBanners.map(ad => (
+            <div
+              ref={adRailRef}
+              className="flex snap-x snap-mandatory gap-3 overflow-x-auto scrollbar-hide"
+              onScroll={(event) => {
+                const width = event.currentTarget.clientWidth;
+                if (width > 0) setActiveAdIndex(Math.round(event.currentTarget.scrollLeft / width));
+              }}
+            >
+              {adBanners.map((ad, index) => (
                 <button
                   type="button"
                   key={ad.id}
@@ -412,7 +480,7 @@ export default function Home() {
                   </div>
                   {adBanners.length > 1 && (
                     <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-0.5 text-[10px] text-white/80">
-                      {adBanners.indexOf(ad) + 1}/{adBanners.length}
+                      {index + 1}/{adBanners.length}
                     </div>
                   )}
                 </button>
@@ -420,8 +488,8 @@ export default function Home() {
             </div>
             {adBanners.length > 1 && (
               <div className="pointer-events-none -mt-4 flex justify-center gap-1.5 pb-2">
-                {adBanners.map(ad => (
-                  <span key={ad.id} className="h-1.5 w-1.5 rounded-full bg-white/70 shadow-sm" />
+                {adBanners.map((ad, index) => (
+                  <span key={ad.id} className={`h-1.5 rounded-full shadow-sm transition-all ${index === activeAdIndex ? "w-5 bg-white" : "w-1.5 bg-white/45"}`} />
                 ))}
               </div>
             )}
@@ -521,6 +589,41 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      <Sheet open={locationOpen} onOpenChange={setLocationOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[75vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle>Choose Location</SheetTitle>
+            <SheetDescription>Select from locations added by admin.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-5 space-y-2">
+            <button
+              type="button"
+              onClick={() => chooseLocation(null)}
+              className="w-full rounded-xl bg-card px-4 py-3 text-left text-sm font-medium text-foreground"
+              data-testid="button-location-all"
+            >
+              All locations
+            </button>
+            {adminLocations.map(location => (
+              <button
+                type="button"
+                key={location}
+                onClick={() => chooseLocation(location)}
+                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
+                  filterCity === location ? "bg-primary text-primary-foreground" : "bg-card text-foreground"
+                }`}
+                data-testid={`button-location-${location}`}
+              >
+                <span className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  {location}
+                </span>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Filter Sheet ─────────────────────────────────────────────── */}
       <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
