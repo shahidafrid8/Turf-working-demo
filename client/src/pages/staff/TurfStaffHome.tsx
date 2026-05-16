@@ -815,6 +815,19 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         <span>Total: <span className="text-foreground font-semibold">₹{b.totalAmount}</span></span>
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
+      {b.status !== "cancelled" && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Player check-in code</p>
+              <p className="text-[11px] text-muted-foreground">Cross-check this with the code on the player's phone.</p>
+            </div>
+            <span className="rounded-lg bg-background px-3 py-1.5 text-lg font-black tracking-[0.25em] text-primary" data-testid={`text-checkin-code-${b.id}`}>
+              {b.verificationCode || "----"}
+            </span>
+          </div>
+        </div>
+      )}
       {user?.role === "turf_owner" && b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (
         <div className="flex gap-2">
           {b.balanceAmount > 0 && (

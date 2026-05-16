@@ -822,7 +822,6 @@ function BookingsPanel({ turf }: { turf: Turf }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [verificationInputs, setVerificationInputs] = useState<Record<string, string>>({});
 
   const { data: bookings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/owner/turfs", turf.id, "bookings"],
@@ -851,16 +850,6 @@ function BookingsPanel({ turf }: { turf: Turf }) {
       toast({ title: "Booking cancelled", description: "The booking has been cancelled and slots freed." });
     },
     onError: (err: any) => toast({ title: "Cannot cancel", description: err.message || "Something went wrong.", variant: "destructive" }),
-  });
-
-  const verifyMutation = useMutation({
-    mutationFn: ({ bookingId, code }: { bookingId: string; code: string }) =>
-      apiRequest("POST", `/api/owner/bookings/${bookingId}/verify`, { code }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/owner/turfs", turf.id, "bookings"] });
-      toast({ title: "Booking verified", description: "The player has been checked in." });
-    },
-    onError: (err: any) => toast({ title: "Code not matched", description: err.message || "Ask the player to confirm the 4-digit code.", variant: "destructive" }),
   });
 
   const upcoming = bookings.filter(b => b.date >= format(today, "yyyy-MM-dd") && b.status !== "cancelled");
@@ -901,47 +890,16 @@ function BookingsPanel({ turf }: { turf: Turf }) {
         <span>Paid: ₹{b.paidAmount} · Due: ₹{b.balanceAmount}</span>
       </div>
       {b.status !== "cancelled" && (
-        <div className="rounded-lg border border-border bg-background/60 p-3 space-y-2">
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-semibold text-foreground">4-digit check-in</p>
-              <p className="text-[11px] text-muted-foreground">
-                {b.verificationStatus === "verified" ? "Player code verified" : "Ask player for the code"}
-              </p>
+              <p className="text-xs font-semibold text-foreground">Player check-in code</p>
+              <p className="text-[11px] text-muted-foreground">Cross-check this with the code on the player's phone.</p>
             </div>
-            <span className={cn(
-              "text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase",
-              b.verificationStatus === "verified"
-                ? "bg-green-500/15 text-green-500"
-                : "bg-yellow-500/15 text-yellow-500"
-            )}>
-              {b.verificationStatus === "verified" ? "Verified" : "Pending"}
+            <span className="rounded-lg bg-background px-3 py-1.5 text-lg font-black tracking-[0.25em] text-primary" data-testid={`text-checkin-code-${b.id}`}>
+              {b.verificationCode || "----"}
             </span>
           </div>
-          {b.verificationStatus !== "verified" && (
-            <div className="flex gap-2">
-              <Input
-                value={verificationInputs[b.id] || ""}
-                onChange={(event) => setVerificationInputs(prev => ({
-                  ...prev,
-                  [b.id]: event.target.value.replace(/\D/g, "").slice(0, 4),
-                }))}
-                placeholder="0000"
-                inputMode="numeric"
-                maxLength={4}
-                className="h-9 bg-card tracking-[0.3em] text-center font-bold"
-                data-testid={`input-verify-code-${b.id}`}
-              />
-              <Button
-                size="sm"
-                disabled={verifyMutation.isPending || (verificationInputs[b.id] || "").length !== 4}
-                onClick={() => verifyMutation.mutate({ bookingId: b.id, code: verificationInputs[b.id] || "" })}
-                data-testid={`button-verify-code-${b.id}`}
-              >
-                Verify
-              </Button>
-            </div>
-          )}
         </div>
       )}
       {user?.role === "turf_owner" && b.status !== "cancelled" && (b.balanceAmount > 0 || b.date >= format(today, "yyyy-MM-dd")) && (

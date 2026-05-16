@@ -219,7 +219,7 @@ export class MemStorage implements IStorage {
     const firstAdminUpdate: AdminUpdate = {
       id: "seed-admin-update-verification",
       title: "Booking verification codes are live",
-      body: "Players now receive a 4-digit code after payment. Turf owners can verify the code from the booking card before check-in.",
+      body: "Players and turf teams now see the same 4-digit check-in code. Staff can cross-check it manually at entry.",
       audience: "internal",
       postType: "announcement",
       imageUrl: null,
