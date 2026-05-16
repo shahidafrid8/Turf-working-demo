@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { paymentWebhookSchema, slotHoldRequestSchema } from "./shared";
+import { notifyBookingCreated } from "../services/pushNotifications";
 
 export function registerPaymentRoutes(app: Express) {
   app.post("/api/payment-holds", async (req, res) => {
@@ -84,6 +85,7 @@ export function registerPaymentRoutes(app: Express) {
       }
 
       const booking = await storage.confirmSlotHold(event.holdId, event.providerReference);
+      notifyBookingCreated(booking).catch((error) => logger.warn("push.booking_created_failed", { bookingId: booking.id, error: error?.message || "unknown" }));
       logger.info("payment.webhook_confirmed", {
         holdId: event.holdId,
         bookingId: booking.id,
@@ -109,6 +111,7 @@ export function registerPaymentRoutes(app: Express) {
 
     try {
       const booking = await storage.confirmSlotHold(req.params.holdId, `mock_${Date.now()}`);
+      notifyBookingCreated(booking).catch((error) => logger.warn("push.booking_created_failed", { bookingId: booking.id, error: error?.message || "unknown" }));
       res.json(booking);
     } catch (err: any) {
       const status = err?.status || 500;

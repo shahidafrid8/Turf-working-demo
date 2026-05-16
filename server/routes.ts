@@ -10,6 +10,7 @@ import { registerPromoRoutes } from "./routes/promo.routes";
 import { registerPublicRoutes } from "./routes/public.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
+import { registerPushRoutes } from "./routes/push.routes";
 
 declare module "express-session" {
   interface SessionData {
@@ -27,6 +28,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerStaffRoutes(app);
   registerPaymentRoutes(app);
   registerPromoRoutes(app);
+  registerPushRoutes(app);
   registerBookingRoutes(app);
   registerPlayerRoutes(app);
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -429,6 +429,20 @@ export const appFeedback = pgTable("app_feedback", {
 export const insertAppFeedbackSchema = createInsertSchema(appFeedback).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAppFeedback = z.infer<typeof insertAppFeedbackSchema>;
 export type AppFeedback = typeof appFeedback.$inferSelect;
+
+/** Browser push subscriptions for outside-app notifications */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  endpoint: text("endpoint").notNull().unique(),
+  subscription: jsonb("subscription").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("push_subscriptions_user_idx").on(table.userId),
+}));
+
+export type PushSubscriptionRecord = typeof pushSubscriptions.$inferSelect;
 
 /** Turf reviews (one per booking) */
 export const turfReviews = pgTable("turf_reviews", {

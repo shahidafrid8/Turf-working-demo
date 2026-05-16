@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useSEO } from "@/lib/seo";
+import { enablePushNotifications, isPushSupported } from "@/lib/pushNotifications";
 import type { Booking } from "@shared/schema";
 
 type ProfileView = "main" | "edit" | "password" | "notifications" | "privacy" | "help" | "rate";
@@ -417,7 +418,30 @@ function PwdField({ id, label, placeholder, value, show, onToggle, onChange, err
    ═════════════════════════════════════════════════════════════════════════ */
 
 function NotificationsView({ onBack }: { onBack: () => void }) {
+  const { toast } = useToast();
   const [prefs, setPrefs] = useState({ bookingUpdates: true, promotions: false, reminders: true, newTurfs: false });
+  const [isEnabling, setIsEnabling] = useState(false);
+  const notificationPermission = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+
+  const handleEnableOutsideNotifications = async () => {
+    setIsEnabling(true);
+    try {
+      const enabled = await enablePushNotifications();
+      toast({
+        title: enabled ? "Outside notifications enabled" : "Notifications not enabled",
+        description: enabled ? "Booking updates can now appear even when QuickTurf is not open." : "Allow notifications when your browser asks.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Notifications failed",
+        description: err.message || "Could not enable outside-app notifications.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsEnabling(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background pb-20">
       <SubHeader title="Notifications" onBack={onBack} />
@@ -428,8 +452,30 @@ function NotificationsView({ onBack }: { onBack: () => void }) {
           <Toggle label="Booking Reminders" desc="Remind me before my upcoming bookings" checked={prefs.reminders} onChange={(v) => setPrefs({ ...prefs, reminders: v })} />
           <Toggle label="New Turfs Nearby" desc="Get notified when new turfs open near you" checked={prefs.newTurfs} onChange={(v) => setPrefs({ ...prefs, newTurfs: v })} />
         </Card>
+        <Card className="p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Outside app notifications</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Enable browser push alerts for booking confirmations and owner/staff booking updates.
+            </p>
+          </div>
+          <Button
+            className="w-full"
+            disabled={!isPushSupported() || isEnabling || notificationPermission === "granted"}
+            onClick={handleEnableOutsideNotifications}
+            data-testid="button-enable-push-notifications"
+          >
+            {notificationPermission === "granted" ? "Enabled" : isEnabling ? "Enabling..." : "Enable outside notifications"}
+          </Button>
+          {notificationPermission === "denied" && (
+            <p className="text-xs text-destructive">Notifications are blocked in browser settings. Allow them for this site and try again.</p>
+          )}
+          {!isPushSupported() && (
+            <p className="text-xs text-muted-foreground">This browser does not support outside-app push notifications.</p>
+          )}
+        </Card>
         <p className="text-xs text-muted-foreground text-center px-4">
-          Notification preferences are saved locally and will apply when push notifications are enabled.
+          Notification preferences are saved locally. Outside-app alerts require browser permission.
         </p>
       </main>
     </div>

@@ -50,6 +50,13 @@
       "when": 1778716800000,
       "tag": "0006_admin_update_targeting",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778899200000,
+      "tag": "0007_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { captureError, logger } from "../logger";
 import { bookingRequestSchema } from "./shared";
+import { notifyBookingCreated } from "../services/pushNotifications";
 
 export function registerBookingRoutes(app: Express) {
   app.get("/api/bookings", async (req, res) => {
@@ -71,6 +72,7 @@ export function registerBookingRoutes(app: Express) {
       }
 
       const booking = await storage.createBookingWithSlotLock(validatedData, requiredSlots.map(slot => slot.id));
+      notifyBookingCreated(booking).catch((error) => logger.warn("push.booking_created_failed", { bookingId: booking.id, error: error?.message || "unknown" }));
       logger.info("booking.created", {
         bookingId: booking.id,
         turfId: booking.turfId,

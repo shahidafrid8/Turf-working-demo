@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import { syncGrantedPushSubscription } from "@/lib/pushNotifications";
 
 export interface AuthUser {
   id: string;
@@ -94,6 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchMe().finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    syncGrantedPushSubscription().catch(() => {});
+  }, [user?.id]);
 
   const login = async (identifier: string, password: string) => {
     const res = await apiRequest("POST", "/api/auth/login", { identifier, password });
