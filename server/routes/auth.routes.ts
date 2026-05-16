@@ -16,15 +16,17 @@ import {
   sanitizeText,
   verifyPassword,
 } from "./shared";
+import { normalizeEmail } from "../utils/email";
 
 const googleLoginSchema = z.object({
   credential: z.string().min(1, "Missing Google credential"),
+  role: z.enum(["player", "turf_owner"]).optional(),
 }).strict();
 
 export function registerAuthRoutes(app: Express) {
   app.post("/api/auth/google", async (req: Request, res: Response) => {
     try {
-      const { credential } = googleLoginSchema.parse(req.body);
+      const { credential, role } = googleLoginSchema.parse(req.body);
       const clientId = process.env.GOOGLE_CLIENT_ID;
       if (!clientId) return res.status(500).json({ error: "Google login is not configured" }) as any;
 
@@ -35,7 +37,7 @@ export function registerAuthRoutes(app: Express) {
       });
 
       const payload = ticket.getPayload();
-      const email = payload?.email?.toLowerCase();
+      const email = payload?.email ? normalizeEmail(payload.email) : undefined;
       if (!email) return res.status(400).json({ error: "Invalid Google token" }) as any;
       if (payload?.email_verified === false) return res.status(400).json({ error: "Google account email is not verified" }) as any;
       if (!email.endsWith("@gmail.com")) return res.status(400).json({ error: "Only Gmail addresses (@gmail.com) are accepted" }) as any;
@@ -48,7 +50,16 @@ export function registerAuthRoutes(app: Express) {
           email,
           fullName: payload?.name ?? null,
           profileImageUrl: payload?.picture ?? null,
+          role: role ?? "player",
         });
+      }
+
+      if (role && existing.role !== role) {
+        return res.status(409).json({
+          error: existing.role === "player"
+            ? "This Gmail is already registered as a player account."
+            : "This Gmail is already registered as a turf owner account.",
+        }) as any;
       }
 
       if (existing.isBanned) {
@@ -73,13 +84,14 @@ export function registerAuthRoutes(app: Express) {
       const fullName = data.fullName ? sanitizeText(data.fullName) : undefined;
 
       if (await storage.getUserByUsername(data.username)) return res.status(409).json({ error: "Username already taken" }) as any;
-      if (await storage.getUserByEmail(data.email)) return res.status(409).json({ error: "Gmail address already registered" }) as any;
+      const email = normalizeEmail(data.email);
+      if (await storage.getUserByEmail(email)) return res.status(409).json({ error: "Gmail address already registered" }) as any;
       if (await storage.getUserByPhone(data.phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
 
       const user = await storage.createUser({
         username: sanitizeText(data.username),
         fullName,
-        email: data.email.toLowerCase(),
+        email,
         phoneNumber: data.phoneNumber,
         password: await hashPassword(data.password),
         dateOfBirth: data.dateOfBirth,
@@ -91,6 +103,7 @@ export function registerAuthRoutes(app: Express) {
       req.session.save(() => res.status(201).json(safeUserResponse(user)));
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
+      if (err?.status === 409) return res.status(409).json({ error: err.message || "Account already exists" }) as any;
       captureError(err, { route: "POST /api/auth/register" });
       res.status(500).json({ error: "Registration failed" });
     }
@@ -101,13 +114,14 @@ export function registerAuthRoutes(app: Express) {
       const data = ownerRegisterSchema.parse(req.body);
 
       if (await storage.getUserByUsername(data.username)) return res.status(409).json({ error: "Username already taken" }) as any;
-      if (await storage.getUserByEmail(data.email)) return res.status(409).json({ error: "Gmail address already registered" }) as any;
+      const email = normalizeEmail(data.email);
+      if (await storage.getUserByEmail(email)) return res.status(409).json({ error: "Gmail address already registered" }) as any;
       if (await storage.getUserByPhone(data.phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
 
       const user = await storage.createUser({
         username: sanitizeText(data.username),
         fullName: sanitizeText(data.fullName),
-        email: data.email.toLowerCase(),
+        email,
         phoneNumber: data.phoneNumber,
         password: await hashPassword(data.password),
         dateOfBirth: data.dateOfBirth,
@@ -120,6 +134,7 @@ export function registerAuthRoutes(app: Express) {
       req.session.save(() => res.status(201).json(safeUserResponse(user)));
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ error: err.errors[0]?.message || "Invalid data" }) as any;
+      if (err?.status === 409) return res.status(409).json({ error: err.message || "Account already exists" }) as any;
       captureError(err, { route: "POST /api/auth/register/owner" });
       res.status(500).json({ error: "Registration failed" });
     }
@@ -183,13 +198,14 @@ export function registerAuthRoutes(app: Express) {
       if (!currentUser) return res.status(404).json({ error: "User not found" }) as any;
 
       if (username && username !== currentUser.username && await storage.getUserByUsername(username)) return res.status(409).json({ error: "Username already taken" }) as any;
-      if (email && email !== currentUser.email && await storage.getUserByEmail(email)) return res.status(409).json({ error: "Email already registered" }) as any;
+      const normalizedEmail = email ? normalizeEmail(email) : undefined;
+      if (normalizedEmail && normalizedEmail !== normalizeEmail(currentUser.email) && await storage.getUserByEmail(normalizedEmail)) return res.status(409).json({ error: "Email already registered" }) as any;
       if (phoneNumber && phoneNumber !== currentUser.phoneNumber && await storage.getUserByPhone(phoneNumber)) return res.status(409).json({ error: "Phone number already registered" }) as any;
 
       const updated = await storage.updateUserProfile(req.session.userId, {
         username: username || undefined,
         fullName: fullName || undefined,
-        email: email ? email.toLowerCase() : undefined,
+        email: normalizedEmail,
         phoneNumber: phoneNumber || undefined,
       });
       if (!updated) return res.status(500).json({ error: "Update failed" }) as any;

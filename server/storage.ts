@@ -30,6 +30,7 @@ import { addDays, format, startOfToday } from "date-fns";
 import bcrypt from "bcrypt";
 import { db, pool } from "./db";
 import { generateVerificationCode, isVerificationCodeValid, normalizeVerificationCode } from "./services/bookingVerification";
+import { normalizeEmail } from "./utils/email";
 
 export interface IStorage {
   // Users
@@ -550,15 +551,25 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(u => u.email.toLowerCase() === email.toLowerCase());
+    const normalized = normalizeEmail(email);
+    return Array.from(this.users.values()).find(u => normalizeEmail(u.email) === normalized);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
+    if (await this.getUserByUsername(insertUser.username)) {
+      throw Object.assign(new Error("Username already taken"), { status: 409 });
+    }
+    if (await this.getUserByEmail(insertUser.email)) {
+      throw Object.assign(new Error("Gmail address already registered"), { status: 409 });
+    }
+    if (await this.getUserByPhone(insertUser.phoneNumber)) {
+      throw Object.assign(new Error("Phone number already registered"), { status: 409 });
+    }
     const id = randomUUID();
     const user: User = {
       id,
       username: insertUser.username,
-      email: insertUser.email,
+      email: normalizeEmail(insertUser.email),
       phoneNumber: insertUser.phoneNumber,
       password: insertUser.password,
       dateOfBirth: insertUser.dateOfBirth,
@@ -597,7 +608,7 @@ export class MemStorage implements IStorage {
     const updated = { ...user };
     if (data.username !== undefined) updated.username = data.username;
     if (data.fullName !== undefined) updated.fullName = data.fullName;
-    if (data.email !== undefined) updated.email = data.email;
+    if (data.email !== undefined) updated.email = normalizeEmail(data.email);
     if (data.phoneNumber !== undefined) updated.phoneNumber = data.phoneNumber;
     if (data.profileImageUrl !== undefined) updated.profileImageUrl = data.profileImageUrl;
     this.users.set(id, updated);

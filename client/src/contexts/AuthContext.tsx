@@ -27,6 +27,7 @@ export type GoogleLoginResult =
       email: string;
       fullName: string | null;
       profileImageUrl: string | null;
+      role?: "player" | "turf_owner";
     }
   | {
       needsRegistration: false;
@@ -37,7 +38,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (identifier: string, password: string) => Promise<void>;
-  loginWithGoogle: (credential: string) => Promise<GoogleLoginResult>;
+  loginWithGoogle: (credential: string, role?: "player" | "turf_owner") => Promise<GoogleLoginResult>;
   register: (data: PlayerRegisterData) => Promise<void>;
   registerOwner: (data: OwnerRegisterData) => Promise<void>;
   submitTurf: (data: TurfSubmitData) => Promise<void>;
@@ -101,9 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data);
   };
 
-  const loginWithGoogle = async (credential: string) => {
-    const res = await apiRequest("POST", "/api/auth/google", { credential });
-    const data = (await res.json()) as GoogleLoginResult;
+  const loginWithGoogle = async (credential: string, role: "player" | "turf_owner" = "player") => {
+    const res = await apiRequest("POST", "/api/auth/google", { credential, role });
+    const data = await res.json() as GoogleLoginResult & { error?: string };
+    if (!res.ok) throw new Error(data.error || "Google login failed");
 
     if (data.needsRegistration === false) {
       setUser(data.user);

@@ -74,7 +74,7 @@ export default function Login() {
             if (!credential) return;
             setIsSubmitting(true);
             try {
-              const result = await loginWithGoogle(credential);
+              const result = await loginWithGoogle(credential, "player");
               if (result.needsRegistration) {
                 const params = new URLSearchParams();
                 params.set("email", result.email);

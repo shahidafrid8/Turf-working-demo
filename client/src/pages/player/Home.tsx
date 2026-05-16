@@ -35,6 +35,20 @@ function isAdminLocation(value: string, adminLocations: string[]) {
   return adminLocations.some(location => locationKey(location) === key);
 }
 
+function englishRegionFromAddress(address: Record<string, string | undefined>) {
+  return (
+    address.city ||
+    address.town ||
+    address.municipality ||
+    address.city_district ||
+    address.county ||
+    address.state_district ||
+    address.village ||
+    address.state ||
+    "Near you"
+  );
+}
+
 function AdSenseBanner() {
   const env = (import.meta as any).env || {};
   const client = env.VITE_GOOGLE_ADSENSE_CLIENT;
@@ -139,10 +153,16 @@ export default function Home() {
       async (position) => {
         try {
           const { latitude, longitude } = position.coords;
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+          const params = new URLSearchParams({
+            format: "jsonv2",
+            lat: String(latitude),
+            lon: String(longitude),
+            "accept-language": "en",
+          });
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
           const data = await res.json();
           const address = data.address || {};
-          const rawLabel = address.city || address.town || address.village || address.suburb || address.county || "Near you";
+          const rawLabel = englishRegionFromAddress(address);
           const label = matchAdminLocation(rawLabel, adminLocations);
           setDetectedLocation(label);
           if (isAdminLocation(label, adminLocations)) setFilterCity(label);

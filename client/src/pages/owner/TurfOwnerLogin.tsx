@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,6 +11,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
 const schema = z.object({
   identifier: z.string().min(1, "Enter your username, phone, or Gmail"),
   password: z.string().min(1, "Enter your password"),
@@ -20,10 +26,12 @@ type FormValues = z.infer<typeof schema>;
 
 export default function TurfOwnerLogin() {
   const [, navigate] = useLocation();
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const { toast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const googleClientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -45,6 +53,67 @@ export default function TurfOwnerLogin() {
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return;
+
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    const init = () => {
+      if (cancelled) return;
+      const g = window.google;
+
+      if (g?.accounts?.id && googleButtonRef.current) {
+        googleButtonRef.current.innerHTML = "";
+        g.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (resp: { credential?: string }) => {
+            const credential = resp?.credential;
+            if (!credential) return;
+            setIsSubmitting(true);
+            try {
+              const result = await loginWithGoogle(credential, "turf_owner");
+              if (result.needsRegistration) {
+                const params = new URLSearchParams();
+                params.set("email", result.email);
+                if (result.fullName) params.set("fullName", result.fullName);
+                navigate(`/owner/register?${params.toString()}`);
+              } else {
+                navigate("/owner/home");
+              }
+            } catch (err: any) {
+              toast({
+                title: "Google sign-in failed",
+                description: err.message || "Please try again.",
+                variant: "destructive",
+              });
+            } finally {
+              setIsSubmitting(false);
+            }
+          },
+        });
+
+        g.accounts.id.renderButton(googleButtonRef.current, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          width: 320,
+          text: "signin_with",
+          shape: "pill",
+        });
+        return;
+      }
+
+      if (Date.now() - startedAt > 5000) return;
+      setTimeout(init, 100);
+    };
+
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, [googleClientId, loginWithGoogle, navigate, toast]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -82,6 +151,12 @@ export default function TurfOwnerLogin() {
 
       <div className="flex-1 px-6 pb-8">
         <h2 className="text-xl font-semibold text-foreground mb-6">Sign in as Turf Owner</h2>
+
+        {googleClientId ? (
+          <div className="mb-5 flex justify-center" data-testid="google-owner-login">
+            <div ref={googleButtonRef} />
+          </div>
+        ) : null}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

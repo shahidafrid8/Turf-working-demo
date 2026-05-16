@@ -35,13 +35,16 @@ export default function TurfOwnerRegister() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const searchParams = new URLSearchParams(window.location.search);
+  const prefillEmail = searchParams.get("email") || "";
+  const prefillFullName = searchParams.get("fullName") || "";
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      fullName: "",
+      fullName: prefillFullName,
       username: "",
-      email: "",
+      email: prefillEmail,
       phoneNumber: "",
       dateOfBirth: "",
       password: "",
@@ -117,8 +120,9 @@ export default function TurfOwnerRegister() {
                   <FormItem>
                     <FormLabel className={labelClass}>Gmail address</FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-email" type="email" placeholder="yourname@gmail.com" className={inputClass} />
+                      <Input {...field} data-testid="input-email" type="email" placeholder="yourname@gmail.com" readOnly={Boolean(prefillEmail)} className={inputClass} />
                     </FormControl>
+                    {prefillEmail && <p className="text-xs text-muted-foreground mt-1">Google verified Gmail is locked for this signup.</p>}
                     <FormMessage />
                   </FormItem>
                 )} />
